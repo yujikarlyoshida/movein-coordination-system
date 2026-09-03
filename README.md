@@ -152,9 +152,26 @@ python app.py --stage --demo       # prepare everything, show the confirmation
 python app.py --history            # what has been recorded, no PII decrypted
 python app.py --pause              # stop the background watcher (persists)
 
-python test_rules.py               # 28 tests — decision logic
+python app.py --db                 # where the local encrypted database is
+python test_rules.py               # 33 tests — decision logic
 python test_store.py               # 13 tests — encryption, staging, idempotence
 ```
+
+**The database is not in this repository and never has been.** It lives at
+`~/Library/Application Support/MoveInTriage/residents.sqlite3`, outside the
+project directory entirely, so no command run inside the repo can sweep it into
+a commit — `git log --all --diff-filter=A` shows no database file in any commit
+in the history. `.gitignore` blocks `*.sqlite3` and `*.key` as a second line of
+defence, and the file is created `0600`.
+
+`--db` is the link to it: path, size, permissions, and where the key is. It
+prints no resident data, because knowing where the database is and knowing
+what's in it are different permissions, and only the first belongs in a command
+you might run with someone looking over your shoulder.
+
+The key is in the macOS Keychain, not beside the data — an encrypted file whose
+key sits next to it is a locked door with the key in the lock. It is also not
+recoverable: lose the Keychain item and the contents are gone, by design.
 
 **Staging prepares; it does not commit.** `--stage` composes the draft in full,
 resolves recipients, builds the portal payloads, and stops at one confirmation
@@ -202,7 +219,7 @@ nothing is outstanding.
 | `app.py` · `board.py` | CLI and HTML board |
 | `menubar.py` · `window.py` | macOS menu bar app and native window |
 | `sample_data.py` | Fictional sample mailbox for demo mode and tests |
-| `test_rules.py` · `test_store.py` | 41 offline tests |
+| `test_rules.py` · `test_store.py` | 46 offline tests |
 | `sheet.py` | Retired spreadsheet reader, kept as a marker |
 
 ---

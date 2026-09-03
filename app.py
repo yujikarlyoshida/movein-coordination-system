@@ -10,6 +10,8 @@ Entry point.
     python app.py --pause         stop the background watcher (persists)
     python app.py --resume        start it again
     python app.py --history       what the tool has recorded, from the database
+    python app.py --db            where the local encrypted database is
+    python app.py --db --reveal   ...and open it in Finder
 
 --demo exercises the whole pipeline against sample_data.MESSAGES, so the logic
 can be shown to somebody without giving them a tenant login.
@@ -165,6 +167,68 @@ def run_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_db(args: argparse.Namespace) -> int:
+    """
+    Where the database is, and what state it is in.
+
+    The repository contains no database and never has -- this command is the
+    link to it. It prints the path, reports whether the key is in the Keychain
+    or has fallen back to a file, and offers to reveal it in Finder.
+
+    Deliberately prints no resident data. Knowing where the database is and
+    knowing what is in it are different permissions, and only the first one
+    belongs in a command you might run while someone is looking over your
+    shoulder.
+    """
+    import subprocess
+    import sys as _sys
+
+    import keystore
+    import store
+
+    store.migrate()
+    path = store.DB_PATH
+
+    print()
+    print("  Local encrypted database")
+    print(f"  {path}")
+    print()
+
+    if path.exists():
+        size = path.stat().st_size
+        mode = oct(path.stat().st_mode & 0o777)
+        print(f"  size         {size:,} bytes")
+        print(f"  permissions  {mode}  (0o600 = only you can read it)")
+    else:
+        print("  not created yet — it appears on the first recorded move-in")
+
+    # Where the key is matters more than where the database is. An encrypted
+    # file whose key sits beside it is a locked door with the key in the lock.
+    if keystore.FALLBACK_KEY_FILE.exists():
+        print(f"  key          {keystore.FALLBACK_KEY_FILE}")
+        print("               WARNING: on the same disk as the database.")
+        print("               The Keychain was unavailable when the key was made.")
+    else:
+        print(f"  key          macOS Keychain — service '{keystore.KEYCHAIN_SERVICE}'")
+        print("               not on disk, not in this repository, not recoverable if lost")
+
+    counts = store.stats()
+    if counts:
+        total = sum(counts.values())
+        print(f"  contents     {total} move-in(s): "
+              + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    print()
+    print("  Nothing here is in git. `git log --all` shows no database in any commit.")
+    print()
+
+    if args.reveal and _sys.platform == "darwin" and path.exists():
+        subprocess.run(["open", "-R", str(path)], capture_output=True)
+        print("  revealed in Finder.")
+        print()
+
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Move-in triage")
     parser.add_argument("--watch", action="store_true", help="run continuously")
@@ -174,9 +238,14 @@ def main() -> int:
     parser.add_argument("--history", action="store_true", help="show what has been recorded")
     parser.add_argument("--pause", action="store_true", help="pause the background watcher")
     parser.add_argument("--resume", action="store_true", help="resume the background watcher")
+    parser.add_argument("--db", action="store_true", help="where the local encrypted database is")
+    parser.add_argument("--reveal", action="store_true", help="with --db, open it in Finder")
     args = parser.parse_args()
 
     import watcher
+
+    if args.db:
+        return run_db(args)
 
     if args.pause:
         watcher.pause()

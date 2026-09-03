@@ -144,6 +144,32 @@ def test_wrong_key_raises_rather_than_returning_garbage():
         fields._cipher = original
 
 
+def test_the_database_lives_outside_the_repository():
+    # The strongest protection against committing resident data is that the file
+    # is not in the project directory to begin with. A gitignore rule can be
+    # overridden with `git add -f`; a file that isn't there cannot be added at all.
+    import pathlib
+
+    repo = pathlib.Path(__file__).resolve().parent
+    assert repo not in store.DB_PATH.resolve().parents, (
+        f"the database is inside the repository at {store.DB_PATH} -- "
+        f"one `git add -A` from being committed"
+    )
+
+
+def test_no_database_file_sits_in_the_repository():
+    # Belt and braces: even a stray copy made while debugging should be caught
+    # here rather than by a reviewer reading a diff.
+    import pathlib
+
+    repo = pathlib.Path(__file__).resolve().parent
+    strays = [
+        p for pattern in ("*.sqlite3", "*.db", "*.key")
+        for p in repo.rglob(pattern)
+    ]
+    assert not strays, f"database or key files found inside the repo: {strays}"
+
+
 # ---------------------------------------------------------------------------
 # idempotence -- the property the continuous watcher depends on
 # ---------------------------------------------------------------------------
