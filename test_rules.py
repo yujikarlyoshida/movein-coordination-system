@@ -140,6 +140,69 @@ def test_tight_spacing_is_tolerated():
 
 
 # ---------------------------------------------------------------------------
+# unhandled fields -- information the tool has no column for
+# ---------------------------------------------------------------------------
+
+def test_unknown_fields_are_reported_not_dropped():
+    # The rule: nothing in a trigger email disappears silently. The tool has no
+    # column for pets or vehicles and is not getting one -- but it must say that
+    # the information was there, so it reaches the resident's record by hand
+    # rather than being lost between the email and the portal.
+    _, problems = triggers.parse_residents(
+        "Name: Resident India\nEmail: i@test.invalid\nApartment Number: 0406\n"
+        "Pet(s) Information: dog owner\n"
+        "Vehicle: Camry 2024\n"
+        "License Plate: 9JPS567\n"
+    )
+    joined = " ".join(problems)
+
+    assert "dog owner" in joined
+    assert "Camry 2024" in joined
+    assert "9JPS567" in joined
+
+
+def test_explicit_nothing_is_not_reported():
+    # "N/A" has answered the question. Flagging it would be noise, and warnings
+    # that are usually noise stop being read.
+    _, problems = triggers.parse_residents(
+        "Name: Resident Juliet\nEmail: j@test.invalid\nApartment Number: 0406\n"
+        "Pet(s) Information: N/A\n"
+    )
+    assert not any("Pet" in p for p in problems)
+
+
+def test_signature_and_headers_do_not_become_warnings():
+    # A quoted reply carries dozens of "Label: value" lines. If each became a
+    # warning the confirmation screen would be unreadable, which is the failure
+    # mode this whole feature has to avoid.
+    _, problems = triggers.parse_residents(
+        "Name: Resident Kilo\nEmail: k@test.invalid\nApartment Number: 0406\n"
+        "Pet(s) Information: two cats\n"
+        "\nThank you,\nA Colleague\nTel: 555-0100\nWeb: example.com\n"
+        "\nFrom: Leasing Manager <leasing.manager@example.com>\n"
+        "Sent: Monday, September 1, 2026 8:09 PM\n"
+        "To: Team <team@example.com>\n"
+        "Subject: New Resident Move In\n"
+        "Importance: High\n"
+    )
+    unhandled = [p for p in problems if "unhandled field" in p]
+
+    assert len(unhandled) == 1
+    assert "two cats" in unhandled[0]
+
+
+def test_birthday_is_not_flagged_as_unhandled():
+    # Deliberately ignored: the form wants a full date, the email gives day and
+    # month, and the field is filler. Warning about it every time would train
+    # the operator to skip this category of message.
+    _, problems = triggers.parse_residents(
+        "Name: Resident Lima\nEmail: l@test.invalid\nApartment Number: 0406\n"
+        "Birthday: 04/11\n"
+    )
+    assert not any("Birthday" in p for p in problems)
+
+
+# ---------------------------------------------------------------------------
 # already-handled detection -- the part that stops duplicate outreach
 # ---------------------------------------------------------------------------
 
