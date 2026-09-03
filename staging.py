@@ -227,6 +227,23 @@ def stage_for_move_in(move_in, residents: list) -> StagedPlan:
     )
 
     # ---- 3. Resident app entry.
+    #
+    # Verified against the live form. What it actually accepts:
+    #
+    #   required   first name, last name, email
+    #   optional   phone, birthday (three dropdowns), permission-to-enter,
+    #              profile picture, free-form bio rows, tags, notes, membership
+    #   ABSENT     apartment/unit -- there is no unit field on this form at all
+    #
+    # The missing unit field is the important one. Every other system in this
+    # workflow is keyed by unit; this one is not, so a resident added here is not
+    # attached to a home by the act of adding them. Whatever links the two
+    # happens elsewhere, and until that is known this action cannot be called
+    # complete no matter how carefully the payload is built.
+    #
+    # Pets and vehicles are separate records (/app/pet, /app/vehicle), not
+    # fields here -- which is why the unhandled-field reports in triggers.py are
+    # the right home for them rather than columns on Resident.
     birthday = getattr(config, "PLACEHOLDER_BIRTHDAY", {})
     plan.actions.append(
         StagedAction(
@@ -249,7 +266,10 @@ def stage_for_move_in(move_in, residents: list) -> StagedPlan:
                 ],
                 "lease_start": residents[0].lease_start if residents else "",
             },
-            blocked_on=["Resident app sign-in (no API; the session must be open already)"],
+            blocked_on=[
+                "Resident app sign-in (no API; the session must be open already)",
+                f"Resident app has no unit field — link #{move_in.unit} by hand after adding",
+            ],
         )
     )
 

@@ -119,11 +119,21 @@ LOOKBACK_DAYS = 30
 # month and day; the form demands day, month and year. The field is not
 # maintained as real data and is not used for anything.
 #
-# Deliberately 1 January 1900: unmistakably not a real birthday, so nobody
-# downstream mistakes it for one, and trivially searchable if the field ever
-# starts mattering. Leaving the form's own default (1 January 1990) would write a
+# 1 January 1923. Unmistakably not a real birthday, so nobody downstream
+# mistakes it for one, and trivially searchable if the field ever starts
+# mattering. Leaving the form's own default (1 January 1990) would write a
 # plausible-looking date instead, which is worse.
-PLACEHOLDER_BIRTHDAY = {"day": 1, "month": "January", "year": 1900}
+#
+# It was 1900 until this was tested against the live form, which turned out to
+# offer a fixed year dropdown running 2023 down to 1923 -- 1900 is not in it, so
+# the placeholder could never have been selected. Anything driving that form
+# would have silently left the default 1990 in place, writing a plausible fake
+# birthday for every resident: the exact outcome this constant exists to avoid.
+#
+# 1923 is the earliest the form allows. If the range ever shifts, this must move
+# with it; PLACEHOLDER_BIRTHDAY_YEAR_FLOOR records why the value is not free.
+PLACEHOLDER_BIRTHDAY = {"day": 1, "month": "January", "year": 1923}
+PLACEHOLDER_BIRTHDAY_YEAR_FLOOR = 1923
 
 
 # ---------------------------------------------------------------------------
