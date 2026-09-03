@@ -254,17 +254,20 @@ def stage_for_move_in(move_in, residents: list) -> StagedPlan:
                 "unit": move_in.unit,
                 "residents": [
                     {
+                        # The essential four, and nothing else.
                         "first_name": r.first_name,
                         "last_name": r.last_name,
                         "email": r.email,
                         "phone": r.phone,
-                        # Deliberate filler. See config.PLACEHOLDER_BIRTHDAY for
-                        # why this is 1 January 1900 and not the form default.
+                        # The one exception, and it is not data: the form offers
+                        # a birthday and leaving it blank invites someone to
+                        # "helpfully" fill it in later with the plausible default.
+                        # Writing an obvious placeholder closes that door. See
+                        # config.PLACEHOLDER_BIRTHDAY.
                         "date_of_birth": birthday,
                     }
                     for r in residents
                 ],
-                "lease_start": residents[0].lease_start if residents else "",
             },
             blocked_on=[
                 "Resident app sign-in (no API; the session must be open already)",

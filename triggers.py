@@ -125,58 +125,29 @@ _LABEL_ALIASES = {
     "lease start": "lease_start",
 }
 
-# Labels that are structurally "Label: value" but are not resident data: mail
-# headers in a quoted reply, signature lines, boilerplate. These are discarded
-# without comment, because reporting them would bury the genuine surprises.
+# THE ESSENTIAL FOUR.
 #
-# This list is the price of reporting unknown fields at all. Everything not in
-# it and not in _LABEL_ALIASES gets surfaced, so the list has to cover the
-# ordinary furniture of a forwarded email or the confirmation screen fills with
-# noise and stops being read -- which is the failure mode that makes warnings
-# worthless.
-_IGNORABLE_LABELS = {
-    "from", "sent", "to", "cc", "bcc", "subject", "date", "reply to",
-    "importance", "attachments", "re", "fw", "fwd",
-    "thank you", "thanks", "best", "regards", "warm regards", "sincerely",
-    "hi team", "hi", "hello", "team",
-    "tel", "mobile", "office", "fax", "web", "website",
-    "caution", "warning", "disclaimer", "confidentiality notice",
-
-    # Date of birth is deliberately not handled. The trigger supplies day and
-    # month; the resident-app form demands a full date and the field is filler
-    # (see config.PLACEHOLDER_BIRTHDAY). Flagging it every time would train the
-    # operator to ignore this whole category of warning.
-    "birthday", "birthdate", "date of birth", "dob",
-}
-
-# Values that mean "explicitly nothing". A trigger reading "Pet(s) Information:
-# N/A" has answered the question, and reporting it as unhandled would be noise
-# of exactly the kind that gets warnings ignored.
-_EMPTY_VALUES = {"n/a", "na", "none", "no", "-", "--", "tbd", "n/a.", "null"}
+# Name, unit, phone, email. These are what the tool reads, records and enters.
+# Everything else in a trigger email -- pets, vehicles, lease dates, birthdays,
+# parking, anything leasing invents next -- is skipped, by decision, for speed.
+#
+# The cost is real and worth stating: a trigger saying "Pet(s) Information: dog
+# owner" is read and discarded, and the tool will not mention it. That
+# information still matters at orientation; it just reaches you by reading the
+# original email rather than through here.
+#
+# This was briefly implemented the other way, surfacing unrecognised fields as
+# notes. It was removed deliberately, not lost. The judgement is that four
+# fields entered quickly beats six fields entered slowly, and that the operator
+# reads the trigger email anyway.
+ESSENTIAL_FIELDS = ("name", "unit", "phone", "email")
 
 
-def _is_noteworthy_unknown(label: str, value: str) -> bool:
-    """
-    Is this unrecognised field worth telling the operator about?
-
-    Filters out the debris that any real email carries -- empty values, mail
-    headers, signature lines, and anything long enough to be a sentence rather
-    than a field.
-    """
-    if not value or not value.strip():
-        return False
-    if value.strip().lower() in _EMPTY_VALUES:
-        return False
-    if label in _IGNORABLE_LABELS:
-        return False
-    # A "label" longer than a few words is almost certainly a sentence that
-    # happens to contain a colon, not a field.
-    if len(label.split()) > 4:
-        return False
-    # Likewise a value that runs on is prose, not data.
-    if len(value) > 120:
-        return False
-    return True
+def _ordinal(n: int) -> str:
+    """1 -> '1st'. Used to refer to a resident by position instead of by name."""
+    if 11 <= (n % 100) <= 13:
+        return f"{n}th"
+    return f"{n}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th') }"
 
 
 def _split_name(full: str) -> tuple[str, str]:
@@ -213,11 +184,6 @@ def parse_residents(body: str, fallback_unit: str = "") -> tuple[list[TriggerRes
     residents: list[TriggerResident] = []
     problems: list[str] = []
 
-    # Fields present in the email that the tool has no column for. Collected
-    # across the whole message rather than per resident, because an unhandled
-    # label rarely sits inside one person's block cleanly.
-    unknown_fields: list[str] = []
-
     blocks: list[dict[str, str]] = []
     current: dict[str, str] | None = None
 
@@ -230,23 +196,9 @@ def parse_residents(body: str, fallback_unit: str = "") -> tuple[list[TriggerRes
         value = match.group(2).strip()
         key = _LABEL_ALIASES.get(raw_label)
 
+        # Anything outside the essential four is skipped without comment. See
+        # ESSENTIAL_FIELDS above for what that costs and why it is the choice.
         if key is None:
-            # An unrecognised field. Report it rather than discarding it.
-            #
-            # This used to be a bare `continue`, which meant any information the
-            # tool had no column for vanished without trace. The trigger template
-            # carries "Pet(s) Information", and a resident who owns a dog would
-            # have had that fact silently dropped -- the tool would look like it
-            # had read the email completely while having thrown away the one
-            # detail that changes what you do at orientation.
-            #
-            # Not stored, not parsed into a field: surfaced. The operator decides
-            # what an unhandled field means. Adding a column for every possible
-            # extra would be a losing race against whatever leasing types next;
-            # saying "there was something here I do not understand" is not.
-            if _is_noteworthy_unknown(raw_label, value):
-                label_display = match.group(1).strip()
-                unknown_fields.append(f"{label_display}: {value}")
             continue
 
         # A Name line starts a new resident.
@@ -274,7 +226,22 @@ def parse_residents(body: str, fallback_unit: str = "") -> tuple[list[TriggerRes
             group_unit = normalise_unit(b["unit"])
             break
 
-    for b in blocks:
+    # Residents are referred to by position, never by name.
+    #
+    # These strings become Result.problems, which reach the board, the menu bar
+    # and macOS notifications -- surfaces with no access control, one of which
+    # renders on a lock screen. Writing "{name}: no phone number given" would put
+    # a resident's name on all three.
+    #
+    # This was latent for a while: every resident in the fixtures had an email,
+    # so the equivalent line for a missing address never fired and the privacy
+    # test stayed green. Adding the phone check made it fire, and the test caught
+    # it immediately. That is the argument for asserting a property rather than
+    # trusting it.
+    #
+    # "the 2nd resident listed" is enough to find the person in the trigger email,
+    # which is open in front of you, and identifies nobody to anyone else.
+    for position, b in enumerate(blocks, start=1):
         name = b.get("name", "").strip()
         if not name:
             continue
@@ -282,15 +249,24 @@ def parse_residents(body: str, fallback_unit: str = "") -> tuple[list[TriggerRes
         first, last = _split_name(name)
         unit = normalise_unit(b.get("unit", "")) or group_unit
 
+        who = "the resident" if len(blocks) == 1 else f"the {_ordinal(position)} resident listed"
+
         if not b.get("unit"):
             problems.append(
-                f"{name}: no apartment number given"
+                f"{who}: no apartment number given"
                 + (f"; assuming {unit} from the rest of the message" if unit else "")
             )
 
+        # Email and phone are essentials, so a missing one is reported. Email is
+        # also required by the resident-app form, which means a resident without
+        # one cannot be added there at all -- that is a blocker, not a note.
         email = b.get("email", "").strip()
         if not email:
-            problems.append(f"{name}: no email address given")
+            problems.append(f"{who}: no email address given")
+
+        phone = b.get("phone", "").strip()
+        if not phone:
+            problems.append(f"{who}: no phone number given")
 
         residents.append(
             TriggerResident(
@@ -305,13 +281,6 @@ def parse_residents(body: str, fallback_unit: str = "") -> tuple[list[TriggerRes
 
     if not residents:
         problems.append("no resident details could be read from this message")
-
-    # Unhandled fields go last, so they read as "and also, note this" rather
-    # than competing with the problems that block the work.
-    for field_text in unknown_fields:
-        problems.append(
-            f"unhandled field, needs entering by hand — {field_text}"
-        )
 
     return residents, problems
 

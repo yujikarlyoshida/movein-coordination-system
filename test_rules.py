@@ -140,66 +140,90 @@ def test_tight_spacing_is_tolerated():
 
 
 # ---------------------------------------------------------------------------
-# unhandled fields -- information the tool has no column for
+# the essential four -- and the deliberate silence about everything else
 # ---------------------------------------------------------------------------
 
-def test_unknown_fields_are_reported_not_dropped():
-    # The rule: nothing in a trigger email disappears silently. The tool has no
-    # column for pets or vehicles and is not getting one -- but it must say that
-    # the information was there, so it reaches the resident's record by hand
-    # rather than being lost between the email and the portal.
-    _, problems = triggers.parse_residents(
-        "Name: Resident India\nEmail: i@test.invalid\nApartment Number: 0406\n"
+def test_only_the_essential_four_are_read():
+    # Name, unit, phone, email. Everything else in the message is skipped for
+    # speed -- not flagged, not stored, not mentioned.
+    residents, problems = triggers.parse_residents(
+        "Name: Resident India\nEmail: i@test.invalid\nPhone: 555-0155\n"
+        "Apartment Number: 0406\n"
         "Pet(s) Information: dog owner\n"
         "Vehicle: Camry 2024\n"
         "License Plate: 9JPS567\n"
     )
-    joined = " ".join(problems)
+    r = residents[0]
 
-    assert "dog owner" in joined
-    assert "Camry 2024" in joined
-    assert "9JPS567" in joined
-
-
-def test_explicit_nothing_is_not_reported():
-    # "N/A" has answered the question. Flagging it would be noise, and warnings
-    # that are usually noise stop being read.
-    _, problems = triggers.parse_residents(
-        "Name: Resident Juliet\nEmail: j@test.invalid\nApartment Number: 0406\n"
-        "Pet(s) Information: N/A\n"
+    assert (r.full_name, r.unit, r.phone, r.email) == (
+        "Resident India", "0406", "555-0155", "i@test.invalid"
     )
-    assert not any("Pet" in p for p in problems)
+    assert problems == []
 
 
-def test_signature_and_headers_do_not_become_warnings():
-    # A quoted reply carries dozens of "Label: value" lines. If each became a
-    # warning the confirmation screen would be unreadable, which is the failure
-    # mode this whole feature has to avoid.
+def test_extra_fields_are_dropped_silently():
+    # The cost of the above, pinned so it stays a decision rather than drifting
+    # into a bug report. A trigger saying "dog owner" is read and discarded, and
+    # the tool says nothing. That information reaches the operator by reading
+    # the original email; it does not reach them through this tool.
+    #
+    # This was implemented the other way first, surfacing extras as notes. If a
+    # future change reinstates that, this test should be deleted deliberately,
+    # not patched around.
+    _, problems = triggers.parse_residents(
+        "Name: Resident Juliet\nEmail: j@test.invalid\nPhone: 555-0166\n"
+        "Apartment Number: 0406\n"
+        "Pet(s) Information: dog owner\nVehicle: Camry 2024\n"
+    )
+    joined = " ".join(problems).lower()
+
+    assert "dog" not in joined
+    assert "camry" not in joined
+    assert "vehicle" not in joined
+
+
+def test_problem_messages_never_name_a_resident():
+    # Problems reach the board, the menu bar and macOS notifications -- none of
+    # which are access-controlled, and one of which renders on a lock screen.
+    # Residents are referred to by position instead.
+    #
+    # This exact leak was live and invisible until the phone check made it fire:
+    # every fixture resident had an email, so the equivalent line for a missing
+    # address never ran.
+    _, problems = triggers.parse_residents(
+        "Name: Distinctive Surname\nApartment Number: 0406\n"
+        "Name: Another Person\nApartment Number: 0406\n"
+    )
+    blob = " ".join(problems).lower()
+
+    assert problems                      # it must actually be reporting something
+    assert "distinctive" not in blob
+    assert "surname" not in blob
+    assert "another" not in blob
+    assert "2nd resident" in blob
+
+
+def test_missing_phone_is_reported():
+    # Phone is an essential, so its absence is worth saying. Contrast with a
+    # missing pet field, which is not.
     _, problems = triggers.parse_residents(
         "Name: Resident Kilo\nEmail: k@test.invalid\nApartment Number: 0406\n"
-        "Pet(s) Information: two cats\n"
+    )
+    assert any("no phone number" in p for p in problems)
+
+
+def test_a_quoted_reply_produces_no_spurious_notes():
+    # A forwarded trigger carries mail headers and a signature block, all of
+    # which look like fields. None of them may generate anything.
+    _, problems = triggers.parse_residents(
+        "Name: Resident Lima\nEmail: l@test.invalid\nPhone: 555-0177\n"
+        "Apartment Number: 0406\n"
         "\nThank you,\nA Colleague\nTel: 555-0100\nWeb: example.com\n"
         "\nFrom: Leasing Manager <leasing.manager@example.com>\n"
         "Sent: Monday, September 1, 2026 8:09 PM\n"
-        "To: Team <team@example.com>\n"
-        "Subject: New Resident Move In\n"
-        "Importance: High\n"
+        "Subject: New Resident Move In\nImportance: High\n"
     )
-    unhandled = [p for p in problems if "unhandled field" in p]
-
-    assert len(unhandled) == 1
-    assert "two cats" in unhandled[0]
-
-
-def test_birthday_is_not_flagged_as_unhandled():
-    # Deliberately ignored: the form wants a full date, the email gives day and
-    # month, and the field is filler. Warning about it every time would train
-    # the operator to skip this category of message.
-    _, problems = triggers.parse_residents(
-        "Name: Resident Lima\nEmail: l@test.invalid\nApartment Number: 0406\n"
-        "Birthday: 04/11\n"
-    )
-    assert not any("Birthday" in p for p in problems)
+    assert problems == []
 
 
 # ---------------------------------------------------------------------------
