@@ -1,0 +1,22 @@
+# macOS app extras. Install these on top of requirements.txt:
+#     pip install -r requirements.txt -r requirements-mac.txt
+#
+# None of this is needed to run the CLI (app.py) -- only the menu bar app.
+
+# AppKit / Foundation bindings: NSStatusBar for the menu bar item, NSWindow for
+# the board window, NSTimer for the refresh poll.
+pyobjc-framework-Cocoa>=9.0
+
+# WKWebView, which renders the board inside the native window. A separate
+# framework wheel from Cocoa, so it must be asked for explicitly.
+pyobjc-framework-WebKit>=9.0
+
+# Deliberately NOT rumps.
+#
+# rumps is the usual menu bar convenience wrapper and the obvious choice here.
+# On Python 3.14 it fails silently: the process starts, runs, and never creates a
+# status item -- no error, no traceback, nothing in the menu bar. rumps 0.4.0
+# dates from 2020 and its NSApplication delegate never fires on this Python.
+# Since rumps is only a thin layer over NSStatusBar, menubar.py uses NSStatusBar
+# directly. One less dependency, and no reliance on an unmaintained package
+# keeping pace with Python releases.

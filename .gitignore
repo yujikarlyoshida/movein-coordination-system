@@ -1,0 +1,34 @@
+# Credentials and tokens -- never commit these.
+.env
+*.token.json
+.movein_triage_token.json
+
+# Generated output. The board is a render of live data; it does not belong in
+# version control, and committing it would put unit-level status into git history.
+board.html
+board_preview.png
+
+# py2app build output
+build/
+dist/
+
+# Debugging scaffolding from working out why the status item would not render on
+# macOS 26. Kept on disk because they are genuinely useful if it breaks again,
+# but not worth committing.
+Diagnose*.command
+Check.command
+Run From Source.command
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

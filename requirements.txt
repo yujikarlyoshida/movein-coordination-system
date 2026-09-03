@@ -1,0 +1,9 @@
+# Microsoft Graph authentication (device-code flow, public client, no secret).
+msal>=1.28,<2
+
+# HTTP. Graph's REST API is simple enough that a full SDK is not warranted.
+requests>=2.31,<3
+
+# Optional, for running the test suite with nicer output:
+#   pip install pytest
+# The suite also runs standalone: python test_rules.py
