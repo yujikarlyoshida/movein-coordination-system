@@ -186,6 +186,7 @@ def evaluate(messages: list[dict]) -> list[Result]:
                 trigger_subject=getattr(trigger, "subject", ""),
                 trigger_received=getattr(trigger, "received", ""),
                 trigger_sender=getattr(trigger, "sender", ""),
+                trigger_id=getattr(trigger, "message_id", ""),
                 evidence=evidence,
                 problems=problems,
             )
@@ -202,6 +203,7 @@ def evaluate(messages: list[dict]) -> list[Result]:
                     trigger_subject=getattr(t, "subject", ""),
                     trigger_received=getattr(t, "received", ""),
                     trigger_sender=getattr(t, "sender", ""),
+                    trigger_id=getattr(t, "message_id", ""),
                     problems=list(getattr(t, "problems", [])) or ["no unit number found"],
                 )
             )

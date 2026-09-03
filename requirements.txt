@@ -4,6 +4,20 @@ msal>=1.28,<2
 # HTTP. Graph's REST API is simple enough that a full SDK is not warranted.
 requests>=2.31,<3
 
+# The resident database.
+#
+# Django is used as a standalone ORM -- no web server, no settings module, no
+# manage.py. It is a heavy dependency for a menu bar app and that is a fair
+# criticism; what it buys is migrations (so the schema can change without
+# destroying an existing database), a field API clean enough to express
+# column-level encryption in a few lines, and constraints declared next to the
+# model rather than in hand-written SQL.
+django>=5.0,<6
+
+# Fernet, for encrypting resident data at rest. AES-128-CBC with an HMAC, which
+# means a tampered row fails to decrypt rather than returning altered plaintext.
+cryptography>=42,<46
+
 # Optional, for running the test suite with nicer output:
 #   pip install pytest
 # The suite also runs standalone: python test_rules.py

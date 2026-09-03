@@ -252,8 +252,18 @@ def test_newest_trigger_wins_for_a_repeated_unit():
 
 
 def test_no_resident_data_reaches_the_results():
-    # The privacy property, asserted rather than trusted: names and addresses are
-    # parsed inside triggers.py but must not travel into anything renderable.
+    # The privacy property, asserted rather than trusted.
+    #
+    # SCOPE, precisely: resident data IS stored, in the encrypted local database
+    # (see test_store.py). What this test guards is the *display* path -- Result
+    # objects feed the board, the menu bar, notifications and the log, none of
+    # which are encrypted and one of which renders on a lock screen. Names are
+    # parsed in triggers.py and must reach only two places: the encrypted
+    # database, and the draft addressed to those residents.
+    #
+    # This mattered before the database existed. It matters more now, because
+    # "the tool holds no PII at all" is no longer the thing keeping it out of
+    # these surfaces -- this test is.
     blob = " ".join(
         f"{r.unit} {r.trigger_subject} {r.trigger_sender} "
         f"{' '.join(r.problems)} {' '.join(e.describe() for e in r.evidence)}"

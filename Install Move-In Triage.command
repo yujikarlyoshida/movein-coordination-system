@@ -122,12 +122,41 @@ for f in "$SRC"/*.py; do
 done
 shopt -u nullglob
 
+# Package directories, which the *.py glob above does not reach. The same
+# lesson as the glob itself: a hand-maintained list of modules failed once, so
+# this copies whole packages rather than naming files inside them.
+#
+# __pycache__ is excluded because a .pyc compiled by a different Python than the
+# bundled venv is at best ignored and at worst imported in preference to the
+# source next to it.
+for pkg in residentdb; do
+  if [[ -d "$SRC/$pkg" ]]; then
+    rm -rf "${APP:?}/Contents/Resources/app/$pkg"
+    cp -R "$SRC/$pkg" "$APP/Contents/Resources/app/$pkg"
+    find "$APP/Contents/Resources/app/$pkg" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+    copied=$((copied + 1))
+  else
+    echo "  package '$pkg' not found in $SRC -- the database layer will not work" >&2
+    exit 1
+  fi
+done
+
 if [[ ! -f "$APP/Contents/Resources/app/menubar.py" ]]; then
   echo "  menubar.py not found in $SRC" >&2
   echo "  Run this installer from inside the movein-triage folder." >&2
   exit 1
 fi
-echo "    copied $copied modules"
+
+# The migrations directory is what lets an existing database survive a schema
+# change. Shipping the models without them means a fresh install cannot even
+# create its tables.
+if [[ ! -f "$APP/Contents/Resources/app/residentdb/migrations/0001_initial.py" ]]; then
+  echo "  residentdb/migrations is empty -- the database cannot be created" >&2
+  echo "  Run: python3 -c 'import store; store._configure()' and makemigrations" >&2
+  exit 1
+fi
+
+echo "    copied $copied modules and packages"
 
 if [[ "$REUSE_VENV" == "0" ]]; then
   echo "==> Creating Python environment (this takes a few minutes)"
@@ -143,11 +172,26 @@ echo "==> Installing dependencies"
 # No rumps: it silently fails to create a status item on Python 3.14 -- the
 # process runs but nothing appears in the menu bar. menubar.py talks to
 # NSStatusBar through pyobjc directly instead, which needs only Cocoa and WebKit.
+#
+# Django is here as a standalone ORM -- no web server is ever started. It brings
+# migrations and the field API that makes column-level encryption clean; the
+# cost is bundle size, which for a local app is the cheaper side of the trade.
 "$VENV_PY" -m pip install --quiet \
   "msal>=1.28,<2" \
   "requests>=2.31,<3" \
+  "django>=5.0,<6" \
+  "cryptography>=42,<46" \
   "pyobjc-framework-Cocoa>=9.0" \
   "pyobjc-framework-WebKit>=9.0"
+
+# Create the database and apply migrations now, at install time, rather than on
+# first launch. A schema error surfaces here where the output is visible, not as
+# a silent failure behind a menu bar icon.
+echo "==> Preparing the encrypted database"
+if ! (cd "$APP/Contents/Resources/app" && "$VENV_PY" -c "import store; store.migrate(verbose=True)"); then
+  echo "  Database setup failed. The app will not be able to record move-ins." >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Info.plist

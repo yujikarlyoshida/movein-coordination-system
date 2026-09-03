@@ -3,6 +3,25 @@
 *.token.json
 .movein_triage_token.json
 
+# THE RESIDENT DATABASE AND ITS KEY.
+#
+# The live database lives outside this directory entirely
+# (~/Library/Application Support/MoveInTriage/), specifically so that no command
+# run inside the repo can sweep it into a commit. These patterns are a second
+# line of defence in case a database is ever created here by a test, a stray
+# MOVEIN_DB_PATH, or a copy made while debugging.
+#
+# The contents are encrypted, but that is not a reason to relax: an encrypted
+# blob in a public repository is a standing invitation to whoever eventually
+# gets the key, and the unit numbers and timestamps in it are plaintext.
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+db.key
+*.key
+
 # Generated output. The board is a render of live data; it does not belong in
 # version control, and committing it would put unit-level status into git history.
 board.html

@@ -67,6 +67,12 @@ class Result:
     trigger_received: str = ""
     trigger_sender: str = ""
 
+    # The mailbox id of the triggering message. Not display data -- it is the
+    # key the database stores rows against, so that a poll loop running every
+    # fifteen minutes forever records each trigger exactly once. An id is not
+    # personal data; it identifies an email, not a person.
+    trigger_id: str = ""
+
     # Why it was judged handled, when it was.
     evidence: list[Evidence] = field(default_factory=list)
 

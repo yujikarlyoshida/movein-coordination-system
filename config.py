@@ -138,12 +138,48 @@ SAVE_OUTREACH_AS_DRAFT_ONLY = True
 
 
 # ---------------------------------------------------------------------------
+# Outreach
+# ---------------------------------------------------------------------------
+
+# Used in the welcome email subject and signature. Kept here rather than in the
+# template so no site-specific name is baked into the logic.
+PROPERTY_NAME = "The Property"
+SIGNATURE = "The Experience Team"
+
+
+# ---------------------------------------------------------------------------
+# Mail source
+# ---------------------------------------------------------------------------
+
+# Where triggers are read from. See mailsource.py.
+#
+#   "graph"      direct Microsoft Graph -- the target. Needs an Azure app
+#                registration (MOVEIN_CLIENT_ID / MOVEIN_TENANT_ID), which is
+#                the only thing standing between this and a true background app.
+#   "connector"  the already-authorised Microsoft 365 connection. Works today,
+#                but only while an assistant session is open, so it cannot back
+#                the always-on watcher.
+#   "demo"       the sample mailbox. No credentials, no network.
+#
+# Set to "graph" the moment credentials exist; nothing else changes.
+MAIL_SOURCE = "demo"
+
+
+# ---------------------------------------------------------------------------
 # Runtime
 # ---------------------------------------------------------------------------
 
 # Refresh interval, seconds. The work is a couple of read-only Graph calls, so
 # this is cheap; 15 minutes feels live without being noisy.
 REFRESH_INTERVAL_SECONDS = 15 * 60
+
+# Run continuously in the background from login, until explicitly paused.
+#
+# Pausing is deliberately persistent: it survives a restart and a reboot, because
+# a pause that silently expires overnight is worse than no pause at all -- you
+# would believe the tool was quiet when it had started polling again.
+RUN_CONTINUOUSLY = True
+PAUSE_STATE_FILE = "paused"
 
 # Where the rendered board is written.
 OUTPUT_HTML = "board.html"

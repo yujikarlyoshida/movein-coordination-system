@@ -98,16 +98,36 @@ working — the worst kind of bug, because the tool keeps confidently reporting.
 `_patch`, no `_delete`. Adding a write would be a deliberate act, not an
 accident.
 
-**No resident PII leaves the parser.** Names and emails are read inside
-`triggers.py` so residents can be told apart within one message, and stop there.
-Nothing renderable — board, menu bar, notification, log — carries anything but a
-unit number and a subject line. `test_no_resident_data_reaches_the_results`
-asserts this rather than trusting it.
+**Resident data is stored, encrypted, and confined to two places.** Names,
+emails and phone numbers live in a local SQLite database with those columns
+encrypted individually (Fernet — AES-128-CBC with an HMAC). The key is held in
+the macOS Keychain, never beside the data. `test_pii_is_not_readable_in_the_raw_file`
+opens the database as bytes and greps for the names it just wrote, so the claim
+is checked against the disk rather than asserted in a comment.
 
-That constraint came from management declining an earlier design on data-privacy
-grounds. It was the right call, and the architecture is better for it: the tool
-now answers "which unit" and defers "who lives there" to the system that already
-holds it, read by a human who is entitled to see it.
+Column-level rather than whole-file encryption, deliberately. Encrypting the
+file protects it until the app opens it, then everything is plaintext in memory
+and in any log line that prints a row. Encrypting columns means a name is
+ciphertext everywhere except the one attribute access that needs it. The cost is
+real and worth naming: **you cannot query an encrypted column.** Fernet uses a
+random IV, so `WHERE first_name = ?` can never match. Everything the app filters
+on — unit, status, dates — is deliberately left plaintext, and none of it
+identifies a person alone.
+
+So PII reaches exactly two destinations: the encrypted database, and the draft
+addressed to those residents. Nothing renderable — board, menu bar, notification,
+log — carries more than a unit number and a subject line, which
+`test_no_resident_data_reaches_the_results` enforces separately.
+
+**This was not the original design.** The first version held no resident data at
+all, after management declined an earlier approach on data-privacy grounds. That
+constraint produced a better architecture and the no-PII rule is still enforced
+across every display surface. Storing records was a later, deliberate reversal to
+support tracking, and it is worth being straightforward about what changed:
+personal data now sits at rest on one machine. The mitigations — encryption at
+rest, a Keychain-held key, `0600` file permissions, a database path outside the
+repository, and a gitignore that catches it anyway — reduce that exposure but do
+not erase it.
 
 The same rule applies to this repository. Every name, address, phone number and
 unit number in the source and in the examples below is invented — residents are
@@ -127,9 +147,31 @@ no mailbox.
 ## Running it
 
 ```bash
-python app.py --demo --console     # full pipeline against a sample mailbox
-python test_rules.py               # 28 tests, all offline
+python app.py --demo --console     # verdicts only
+python app.py --stage --demo       # prepare everything, show the confirmation
+python app.py --history            # what has been recorded, no PII decrypted
+python app.py --pause              # stop the background watcher (persists)
+
+python test_rules.py               # 28 tests — decision logic
+python test_store.py               # 13 tests — encryption, staging, idempotence
 ```
+
+**Staging prepares; it does not commit.** `--stage` composes the draft in full,
+resolves recipients, builds the portal payloads, and stops at one confirmation
+screen showing all of it. Nothing is sent, saved or submitted before you approve,
+and there is deliberately no `--yes` flag: a plan approvable from the same command
+that produced it is one typo from being approved by accident. Drafts are never
+sent even after approval.
+
+**It runs continuously.** A LaunchAgent starts the watcher at login and it polls
+on an interval until paused. Pausing writes a file rather than setting a flag, so
+it survives restarts — a pause that silently expired overnight would be worse
+than none, because you would believe the tool was quiet while it had resumed.
+
+Polling rather than Graph webhooks, because a push subscription needs a public
+HTTPS endpoint that a laptop behind a router does not have. Given that colleagues
+have closed move-ins in as little as 23 minutes, arriving a few minutes late costs
+nothing — the job is to notice what is still open, not to race anyone.
 
 Demo mode needs no credentials and no network. For live use, set
 `MOVEIN_CLIENT_ID` and `MOVEIN_TENANT_ID` from an Azure app registration; the
@@ -148,13 +190,19 @@ nothing is outstanding.
 |---|---|
 | `triggers.py` | What counts as a trigger; parsing residents out of one |
 | `rules.py` | Evidence detection and verdicts. Pure, no I/O |
+| `staging.py` | Prepares every action in full; the single confirmation gate |
+| `watcher.py` | The background poll loop, notifications, persistent pause |
+| `mailsource.py` | One interface, three backends: Graph, connector, demo |
+| `store.py` | Database API. Django configured as a standalone ORM |
+| `residentdb/` | Models, migrations, and the encrypted field |
+| `keystore.py` | Encryption key in the macOS Keychain, never beside the data |
 | `config.py` | Senders, trigger phrases, completion phrases — all site-specific values |
-| `models.py` | Data structures, and why PII cannot enter them |
+| `models.py` | Display-path data structures, and why PII cannot enter them |
 | `graph_client.py` | Read-only Graph client. Exposes `GET` and nothing else |
 | `app.py` · `board.py` | CLI and HTML board |
 | `menubar.py` · `window.py` | macOS menu bar app and native window |
 | `sample_data.py` | Fictional sample mailbox for demo mode and tests |
-| `test_rules.py` | 28 offline tests |
+| `test_rules.py` · `test_store.py` | 41 offline tests |
 | `sheet.py` | Retired spreadsheet reader, kept as a marker |
 
 ---

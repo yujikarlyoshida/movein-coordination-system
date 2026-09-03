@@ -3,12 +3,20 @@ Entry point.
 
     python app.py                 run once, write board.html
     python app.py --console       print a text report instead
-    python app.py --watch         re-run on the configured interval
+    python app.py --stage         prepare everything and show the confirmation
+    python app.py --watch         run continuously on the configured interval
     python app.py --demo          run against the sample mailbox, no sign-in
 
---demo exercises the whole pipeline against sample_data.MESSAGES, so the logic can
-be shown to somebody without giving them a tenant login, and the board can be
-previewed before any Azure setup exists.
+    python app.py --pause         stop the background watcher (persists)
+    python app.py --resume        start it again
+    python app.py --history       what the tool has recorded, from the database
+
+--demo exercises the whole pipeline against sample_data.MESSAGES, so the logic
+can be shown to somebody without giving them a tenant login.
+
+--stage is the one that does real work. It prepares every action in full and
+stops at a single confirmation. Nothing is sent, saved or submitted before you
+approve, and drafts are never sent even after you do.
 """
 
 from __future__ import annotations
@@ -30,20 +38,19 @@ def collect(use_demo: bool = False) -> tuple[list[Result], str]:
 
         return rules.evaluate(sample_data.MESSAGES), "demo mode (no sign-in)"
 
-    # Imported lazily so --demo works with no credentials and no network.
-    import graph_client
+    import mailsource
 
-    client = graph_client.from_environment()
-    client.authenticate()
+    source = mailsource.get_source()
+    available, reason = source.is_available()
+    if not available:
+        raise RuntimeError(f"mail source '{source.name}' unavailable — {reason}")
 
-    operator = client.signed_in_as()
-    messages = client.list_recent_messages()
-
-    return rules.evaluate(messages), operator
+    messages = source.list_recent_messages(days=config.LOOKBACK_DAYS)
+    return rules.evaluate(messages), f"{source.name} source"
 
 
 def print_console(results: list[Result]) -> None:
-    """Text report, for a terminal or a cron log."""
+    """Text report, for a terminal or a log."""
     needs = [r for r in results if r.verdict is Verdict.NEEDS_OUTREACH]
     unclear = [r for r in results if r.verdict is Verdict.UNCLEAR]
     handled = [r for r in results if r.verdict is Verdict.HANDLED]
@@ -79,7 +86,7 @@ def print_console(results: list[Result]) -> None:
 def run_once(args: argparse.Namespace) -> int:
     try:
         results, operator = collect(use_demo=args.demo)
-    except Exception as exc:
+    except Exception as exc:                            # noqa: BLE001
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
@@ -99,12 +106,93 @@ def run_once(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_stage(args: argparse.Namespace) -> int:
+    """
+    Prepare everything, show it, and stop.
+
+    This command deliberately ends at the confirmation. Approving is a separate,
+    explicit act -- there is no --yes flag, because a staged plan that can be
+    approved from the same command line that produced it is one typo away from
+    being approved by accident.
+    """
+    import staging
+
+    if args.demo:
+        import sample_data
+
+        messages = sample_data.MESSAGES
+    else:
+        import mailsource
+
+        source = mailsource.get_source()
+        available, reason = source.is_available()
+        if not available:
+            print(f"error: mail source '{source.name}' unavailable — {reason}", file=sys.stderr)
+            return 1
+        messages = source.list_recent_messages(days=config.LOOKBACK_DAYS)
+
+    plans = staging.collect(messages)
+    print()
+    print(staging.render_confirmation(plans))
+    return 0
+
+
+def run_history(args: argparse.Namespace) -> int:
+    """
+    What the tool has recorded. Reads only plaintext columns -- no resident
+    name or address is decrypted to print this.
+    """
+    import store
+
+    store.migrate()
+    rows = store.history(limit=50)
+
+    if not rows:
+        print("nothing recorded yet.")
+        return 0
+
+    counts = store.stats()
+    print(f"\n{len(rows)} recorded move-in(s):", ", ".join(
+        f"{k}={v}" for k, v in sorted(counts.items())
+    ), "\n")
+
+    for row in rows:
+        when = row.trigger_received.strftime("%Y-%m-%d") if row.trigger_received else "  ??  "
+        print(f"  {when}  #{row.unit:<6} {row.status:<16} {row.trigger_subject[:52]}")
+        if row.evidence_detail:
+            print(f"              └─ {row.evidence_detail}")
+    print()
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Move-in triage")
-    parser.add_argument("--watch", action="store_true", help="refresh on an interval")
+    parser.add_argument("--watch", action="store_true", help="run continuously")
     parser.add_argument("--console", action="store_true", help="print text instead of HTML")
+    parser.add_argument("--stage", action="store_true", help="prepare actions and show the confirmation")
     parser.add_argument("--demo", action="store_true", help="use the sample mailbox")
+    parser.add_argument("--history", action="store_true", help="show what has been recorded")
+    parser.add_argument("--pause", action="store_true", help="pause the background watcher")
+    parser.add_argument("--resume", action="store_true", help="resume the background watcher")
     args = parser.parse_args()
+
+    import watcher
+
+    if args.pause:
+        watcher.pause()
+        print("paused. the background watcher will not poll until resumed.")
+        return 0
+
+    if args.resume:
+        watcher.resume()
+        print("resumed.")
+        return 0
+
+    if args.history:
+        return run_history(args)
+
+    if args.stage:
+        return run_stage(args)
 
     if not args.watch:
         return run_once(args)
@@ -112,7 +200,10 @@ def main() -> int:
     interval = config.REFRESH_INTERVAL_SECONDS
     print(f"watching — refreshing every {interval // 60} min. ctrl-c to stop.")
     while True:
-        run_once(args)
+        if watcher.is_paused():
+            print("(paused)")
+        else:
+            run_once(args)
         try:
             time.sleep(interval)
         except KeyboardInterrupt:
