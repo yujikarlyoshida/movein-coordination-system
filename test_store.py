@@ -28,6 +28,17 @@ from cryptography.fernet import Fernet  # noqa: E402
 
 os.environ["MOVEIN_DB_KEY"] = Fernet.generate_key().decode()
 
+import config  # noqa: E402
+
+# Same reason as test_rules.py: pin the fixture's senders so an installed copy
+# with a real config_local.py does not turn the suite red.
+config.TRIGGER_SENDERS = [
+    "leasing.manager@example.com",
+    "leasing.specialist@example.com",
+    "leasing.associate@example.com",
+]
+config.PROPERTY_NAME = "The Property"
+
 import sample_data  # noqa: E402
 import staging  # noqa: E402
 import store  # noqa: E402

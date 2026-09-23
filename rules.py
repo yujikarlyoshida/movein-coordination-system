@@ -92,7 +92,51 @@ def is_announcement(body: str) -> bool:
     platforms" that replied to nothing. Body matching catches both shapes.
     """
     text = body.lower()
-    return any(phrase in text for phrase in config.HANDLED_PHRASES)
+    if any(phrase in text for phrase in config.HANDLED_PHRASES):
+        return True
+
+    # Patterns, for the phrasings where words sit between the verb and the
+    # object -- "added the resident of 706 to all platforms". See
+    # config.ANNOUNCEMENT_PATTERNS.
+    import re
+
+    for pattern in getattr(config, "ANNOUNCEMENT_PATTERNS", []):
+        if re.search(pattern, text):
+            return True
+
+    return is_terse_completion(body)
+
+
+def is_terse_completion(body: str) -> bool:
+    """
+    A one-word completion reply: the whole message is "Complete", or "Done".
+
+    WHY THIS IS SEPARATE FROM THE PHRASE LIST, AND WHY IT IS STRICT
+    ---------------------------------------------------------------
+    Colleagues close threads two ways. One is a sentence -- "the resident has
+    been added to all platforms" -- which HANDLED_PHRASES catches. The other is
+    a single word on the first line, with a signature and the quoted trigger
+    below it. Two real move-ins were closed that way, and the phrase list missed
+    both; they only read as handled because a welcome email happened to exist.
+
+    "complete" could NOT simply be added to HANDLED_PHRASES. That list is a
+    substring match over the whole body, and a reply saying "I will complete
+    this tomorrow" would then mark the unit done -- a false HANDLED, which is
+    the dangerous direction: the tool goes quiet about a unit that still needs
+    work, and nobody finds out.
+
+    So this checks the FIRST non-empty line only, and requires it to be the
+    completion word and nothing else. "Complete" passes. "Complete once the COI
+    arrives" does not. The quoted trigger and signature below are ignored
+    because they are never the first line of a reply.
+    """
+    for raw in body.splitlines():
+        line = raw.strip().strip(".!").lower()
+        if not line:
+            continue
+        # Only the first line that has content gets a say.
+        return line in config.TERSE_COMPLETIONS
+    return False
 
 
 def is_welcome_email(subject: str) -> bool:

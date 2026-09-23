@@ -3,6 +3,14 @@
 *.token.json
 .movein_triage_token.json
 
+# THE REAL CONFIGURATION.
+#
+# config_local.py holds colleagues' email addresses and the property name. The
+# public config.py carries example.com placeholders and imports this file at the
+# end if it exists, so the repo stays publishable while the installed copy works
+# against the real mailbox.
+config_local.py
+
 # THE RESIDENT DATABASE AND ITS KEY.
 #
 # The live database lives outside this directory entirely

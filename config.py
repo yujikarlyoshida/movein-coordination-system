@@ -94,7 +94,44 @@ HANDLED_PHRASES = [
     "added to all",
     "resident has been added",
     "residents have been added",
+    # A colleague naming one system rather than "all platforms" -- observed as
+    # "<name> (0315) has been added to <resident app>". Without this the unit
+    # reads as still needing outreach when it is done.
+    "has been added to",
+    "have been added to",
 ]
+
+# Substring matching cannot cover every phrasing, because colleagues put words
+# BETWEEN the verb and the object:
+#
+#     "1204 has been added to all platforms"            <- contiguous
+#     "Edna has added the resident of 706 to all platforms"   <- not
+#
+# The second shape was missed entirely by the phrase list above, and only read
+# as handled because a welcome email happened to exist. These patterns allow
+# intervening words.
+#
+# Deliberately anchored on the PAST TENSE "added". A colleague writing "please
+# add them to all platforms" is giving an instruction, not reporting completion,
+# and must not mark the unit done.
+ANNOUNCEMENT_PATTERNS = [
+    r"\badded\b[^.\n]{0,60}?\bto all platforms\b",
+    r"\badded\b[^.\n]{0,60}?\bto all\b",
+]
+
+# The other way threads get closed: a single word, with the signature and the
+# quoted trigger underneath. Two real move-ins were closed exactly this way.
+#
+# These are matched ONLY as the entire first line of a message -- never as a
+# substring of the body. See rules.is_terse_completion for why that distinction
+# is load-bearing rather than fussy.
+TERSE_COMPLETIONS = {
+    "complete",
+    "completed",
+    "done",
+    "all set",
+    "all done",
+}
 
 # 2. A welcome email already sent for that unit. Matched on the unit number
 #    appearing in the subject of something you sent.
@@ -193,3 +230,25 @@ PAUSE_STATE_FILE = "paused"
 
 # Where the rendered board is written.
 OUTPUT_HTML = "board.html"
+
+
+# ---------------------------------------------------------------------------
+# Local overrides
+# ---------------------------------------------------------------------------
+#
+# Everything above is the PUBLIC configuration: example.com senders, a generic
+# property name. Those values are deliberately useless against a real mailbox,
+# because this file is in a public repository.
+#
+# The real values -- colleagues' addresses, the property name -- live in
+# config_local.py, which is gitignored and never committed. If it exists, its
+# values win. If it does not, the tool runs on the example values and finds
+# nothing, which is the correct failure: a missing local config should look
+# like "no triggers", not like a crash and not like real data leaking in.
+#
+# This is why cloning the repo and running it does nothing useful, and why that
+# is the intended behaviour rather than a bug.
+try:
+    from config_local import *          # noqa: F401,F403
+except ImportError:
+    pass

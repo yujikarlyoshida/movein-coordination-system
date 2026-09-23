@@ -17,10 +17,28 @@ update an expected value.
 from __future__ import annotations
 
 import config
-import rules
-import sample_data
-import triggers
-from models import Verdict
+
+# Pin the senders the fixture uses, BEFORE importing anything that reads them.
+#
+# config.py imports config_local.py at the end if it exists, which on an
+# installed copy replaces these with real colleagues' addresses. Without this
+# the suite would pass on a clean checkout and fail on the machine actually
+# running the tool -- the worst possible direction for a test to break, since
+# it only goes red where it matters least.
+#
+# A test suite must assert on its own fixture, not on whoever happens to be
+# staffing the leasing desk.
+config.TRIGGER_SENDERS = [
+    "leasing.manager@example.com",
+    "leasing.specialist@example.com",
+    "leasing.associate@example.com",
+]
+config.PROPERTY_NAME = "The Property"
+
+import rules  # noqa: E402
+import sample_data  # noqa: E402
+import triggers  # noqa: E402
+from models import Verdict  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +252,67 @@ def test_announcement_phrases_are_recognised():
     assert rules.is_announcement("1204 has been added to all platforms.")
     assert rules.is_announcement("Residents of 210 have been added to all platforms")
     assert not rules.is_announcement("Do we know the move-in time?")
+
+
+def test_one_word_completion_reply_counts():
+    # Two real move-ins were closed with a bare "Complete" on the first line,
+    # signature and quoted trigger below. The phrase list missed both; they only
+    # read as handled because a welcome email happened to exist as well.
+    body = (
+        "Complete\n"
+        "A Colleague\n"
+        "DIRECTOR OF EXPERIENCE\n"
+        "\n"
+        "From: Leasing Manager\n"
+        "Subject: New Resident Move In\n"
+        "Apartment Number: #1420\n"
+    )
+    assert rules.is_announcement(body)
+
+
+def test_completion_word_inside_a_sentence_does_not_count():
+    # THE FALSE-POSITIVE GUARD, and the reason "complete" is not simply in
+    # HANDLED_PHRASES. A false HANDLED is the dangerous direction: the tool goes
+    # quiet about a unit that still needs work and nobody finds out.
+    for body in (
+        "I will complete this tomorrow once the COI arrives.",
+        "Waiting on the lease before I can mark it done.",
+        "Can you complete the checklist for 1420?",
+    ):
+        assert not rules.is_announcement(body), body
+
+
+def test_completion_word_must_be_the_whole_first_line():
+    # "Complete" alone closes the thread. "Complete once X" is a promise, not a
+    # report, and must not read as done.
+    assert rules.is_terse_completion("Done\n\nA Colleague")
+    assert not rules.is_terse_completion("Complete once the elevator is booked")
+
+
+def test_words_between_the_verb_and_the_object_still_count():
+    # Real phrasing: "Edna has added the resident of 706 to all platforms."
+    # Substring matching cannot see this -- "added to all platforms" never
+    # appears contiguously -- so it was missed entirely.
+    assert rules.is_announcement("Edna has added the resident of 706 to all platforms.")
+    assert rules.is_announcement("I have added both residents of 1408 to all platforms.")
+
+
+def test_an_instruction_to_add_is_not_a_completion():
+    # The false-positive guard for the patterns above. Present tense is someone
+    # asking for the work; past tense is someone reporting it. Only the second
+    # may mark a unit done.
+    for body in (
+        "Please add them to all platforms when you get a chance.",
+        "Can someone add 0706 to all platforms today?",
+        "We should add the resident to all platforms before Friday.",
+    ):
+        assert not rules.is_announcement(body), body
+
+
+def test_single_system_completion_counts():
+    # Observed: "<name> (0315) has been added to <resident app>" -- naming one
+    # system rather than "all platforms". Previously missed entirely.
+    assert rules.is_announcement("Daksh (315) has been added to the resident app.")
 
 
 def test_welcome_subject_is_recognised():
