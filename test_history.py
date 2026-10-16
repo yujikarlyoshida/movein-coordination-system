@@ -32,6 +32,7 @@ config.TRIGGER_SENDERS = [
     "leasing.associate@example.com",
 ]
 config.PROPERTY_NAME = "The Property"
+config.TRIGGER_SENDER_NAMES = []
 
 import history  # noqa: E402
 import sample_data  # noqa: E402

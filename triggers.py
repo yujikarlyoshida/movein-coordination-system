@@ -70,9 +70,33 @@ class Trigger:
 # Qualification
 # ---------------------------------------------------------------------------
 
-def is_trigger_sender(address: str) -> bool:
-    """True when the address is one of the configured trigger senders."""
-    return address.strip().lower() in {s.lower() for s in config.TRIGGER_SENDERS}
+def _normalise_name(name: str) -> str:
+    """
+    "Lead, Leasing" and " leasing  LEAD " both become "leasing lead".
+
+    Directories differ on name order, and a reading pane may add stray spacing.
+    """
+    text = " ".join((name or "").split()).lower()
+    if "," in text:
+        last, _, first = text.partition(",")
+        text = f"{first.strip()} {last.strip()}".strip()
+    return text
+
+
+def is_trigger_sender(address: str, name: str = "") -> bool:
+    """
+    True when the sender is one of the configured trigger senders.
+
+    The address decides whenever there is one. Outlook on the web shows only a
+    display name in the reading pane, so a source that has no address may pass
+    the name instead, checked against config.TRIGGER_SENDER_NAMES. A name is
+    never consulted when an address is present: an address that is not on the
+    list is a definite no, not a reason to try something looser.
+    """
+    if address.strip():
+        return address.strip().lower() in {s.lower() for s in config.TRIGGER_SENDERS}
+    wanted = {_normalise_name(n) for n in getattr(config, "TRIGGER_SENDER_NAMES", [])}
+    return bool(name.strip()) and _normalise_name(name) in wanted
 
 
 def mentions_trigger_event(body: str) -> bool:
@@ -91,8 +115,8 @@ def mentions_trigger_event(body: str) -> bool:
     return all(marker in text for marker in config.TRIGGER_FIELD_MARKERS)
 
 
-def qualifies(sender: str, body: str) -> bool:
-    return is_trigger_sender(sender) and mentions_trigger_event(body)
+def qualifies(sender: str, body: str, sender_name: str = "") -> bool:
+    return is_trigger_sender(sender, sender_name) and mentions_trigger_event(body)
 
 
 # ---------------------------------------------------------------------------
@@ -292,16 +316,17 @@ def build_trigger(message: dict) -> Trigger | None:
     `message` is the shape graph_client.list_recent_messages returns.
     """
     sender = message.get("sender", "")
+    sender_name = message.get("sender_name", "")
     body = message.get("body", "")
 
-    if not qualifies(sender, body):
+    if not qualifies(sender, body, sender_name):
         return None
 
     residents, problems = parse_residents(body)
 
     return Trigger(
         message_id=message.get("id", ""),
-        sender=sender,
+        sender=sender or sender_name,
         subject=message.get("subject", ""),
         received=message.get("received", ""),
         residents=residents,

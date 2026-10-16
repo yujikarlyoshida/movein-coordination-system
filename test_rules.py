@@ -45,6 +45,7 @@ config.TRIGGER_SENDERS = [
     "leasing.associate@example.com",
 ]
 config.PROPERTY_NAME = "The Property"
+config.TRIGGER_SENDER_NAMES = []
 
 import rules  # noqa: E402
 import sample_data  # noqa: E402
@@ -90,6 +91,49 @@ def test_sender_matching_ignores_case_and_padding():
 
 def test_colleagues_are_not_trigger_senders():
     assert not triggers.is_trigger_sender("colleague@example.com")
+
+
+def _with_sender_names(names, fn):
+    saved = config.TRIGGER_SENDER_NAMES
+    config.TRIGGER_SENDER_NAMES = names
+    try:
+        return fn()
+    finally:
+        config.TRIGGER_SENDER_NAMES = saved
+
+
+def test_a_display_name_qualifies_when_there_is_no_address():
+    # Outlook on the web shows names, not addresses, in the reading pane.
+    ok = lambda: triggers.is_trigger_sender("", "Leasing Lead")  # noqa: E731
+    assert _with_sender_names(["Leasing Lead"], ok)
+
+
+def test_name_order_and_spacing_do_not_matter():
+    check = lambda: (triggers.is_trigger_sender("", "Lead, Leasing")  # noqa: E731
+                     and triggers.is_trigger_sender("", "  leasing   LEAD "))
+    assert _with_sender_names(["Leasing Lead"], check)
+
+
+def test_an_address_always_decides_over_a_name():
+    # An address that is not on the list is a definite no; a matching name
+    # must not rescue it.
+    check = lambda: triggers.is_trigger_sender("colleague@example.com", "Leasing Lead")  # noqa: E731
+    assert not _with_sender_names(["Leasing Lead"], check)
+
+
+def test_an_unlisted_or_missing_name_does_not_qualify():
+    check = lambda: (triggers.is_trigger_sender("", "Someone Else")  # noqa: E731
+                     or triggers.is_trigger_sender("", ""))
+    assert not _with_sender_names(["Leasing Lead"], check)
+
+
+def test_a_named_sender_still_needs_the_move_in_event():
+    # A name match alone never makes a trigger: lunch plans from the leasing
+    # desk are not a move-in.
+    msg = {"id": "n1", "sender": "", "sender_name": "Leasing Lead",
+           "subject": "Lunch", "received": "2026-10-01T12:00:00Z",
+           "body": "Are we still doing the team lunch on Friday?"}
+    assert _with_sender_names(["Leasing Lead"], lambda: triggers.find_triggers([msg])) == []
 
 
 def test_each_event_type_is_recognised():

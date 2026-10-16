@@ -122,6 +122,62 @@ class ConnectorMailSource(MailSource):
         return True, ""
 
 
+def owa_messages(raw: list[dict], days: int | None = None) -> list[dict]:
+    """
+    Convert owa_extract.js output into the app's message dicts.
+
+    Outlook on the web shows times in the signed-in user's local zone, without
+    an offset ("Tue 9/22/2026 1:23 PM"), so they are read as this machine's
+    local time and stored as ISO 8601 with the offset made explicit. A time that
+    cannot be read stays blank; rules.find_evidence then refuses to count that
+    message as evidence, and a trigger with no date reads UNCLEAR.
+
+    The id is the conversation id plus a hash of sender, time and the start of
+    the body: stable as the thread grows, unlike the message's position in the
+    reading pane, which shifts when a reply arrives. The body part keeps two
+    messages from one sender in the same minute apart.
+    """
+    import hashlib
+    from datetime import datetime, timedelta, timezone
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)) if days else None
+    out = []
+    for m in raw:
+        received = ""
+        stamp = " ".join((m.get("received_text") or "").replace(",", " ").split())
+        # A leading weekday ("Tue", "Tuesday") carries no information.
+        parts = stamp.split(" ", 1)
+        if len(parts) == 2 and parts[0].isalpha() and parts[0][:3].lower() in {
+            "mon", "tue", "wed", "thu", "fri", "sat", "sun"
+        }:
+            stamp = parts[1]
+        for fmt in ("%m/%d/%Y %I:%M %p", "%B %d %Y %I:%M %p"):
+            try:
+                when = datetime.strptime(stamp, fmt).astimezone()
+            except ValueError:
+                continue
+            received = when.isoformat()
+            if cutoff and when < cutoff:
+                received = None
+            break
+        if received is None:
+            continue
+
+        sender = (m.get("sender") or "").strip()
+        sender_name = (m.get("sender_name") or "").strip()
+        body = m.get("body", "") or ""
+        key = f"{sender or sender_name}|{received}|{body[:200]}".encode()
+        out.append({
+            "id": f"owa:{m.get('conv_id', '')}:{hashlib.sha1(key).hexdigest()[:12]}",
+            "subject": m.get("subject", "") or "",
+            "sender": sender,
+            "sender_name": sender_name,
+            "received": received,
+            "body": body,
+        })
+    return out
+
+
 def get_source(name: str | None = None) -> MailSource:
     """
     Build the configured source.

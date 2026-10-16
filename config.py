@@ -46,6 +46,12 @@ TRIGGER_SENDERS = [
     "leasing.associate@example.com",
 ]
 
+# The same senders by display name, for sources that show no address. Outlook on
+# the web's reading pane shows names only. Consulted only when a message has no
+# sender address; see triggers.is_trigger_sender. "First Last" or "Last, First".
+# Real names belong in config_local.py, never here.
+TRIGGER_SENDER_NAMES: list[str] = []
+
 # ...and whose body describes one of the events worth acting on. Matched
 # case-insensitively as substrings.
 #
