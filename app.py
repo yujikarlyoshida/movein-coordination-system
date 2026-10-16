@@ -38,7 +38,8 @@ def collect(use_demo: bool = False) -> tuple[list[Result], str]:
     if use_demo:
         import sample_data
 
-        return rules.evaluate(sample_data.MESSAGES), "demo mode (no sign-in)"
+        with sample_data.fixture_config():
+            return rules.evaluate(sample_data.MESSAGES), "demo mode (no sign-in)"
 
     import mailsource
 
@@ -48,7 +49,19 @@ def collect(use_demo: bool = False) -> tuple[list[Result], str]:
         raise RuntimeError(f"mail source '{source.name}' unavailable — {reason}")
 
     messages = source.list_recent_messages(days=config.LOOKBACK_DAYS)
-    return rules.evaluate(messages), f"{source.name} source"
+    with _fixture_config_if_demo(source.name):
+        return rules.evaluate(messages), f"{source.name} source"
+
+
+def _fixture_config_if_demo(source_name: str):
+    """get_source() falls back to the sample mailbox; judge it by its own roster."""
+    import contextlib
+
+    import sample_data
+
+    if source_name == "demo":
+        return sample_data.fixture_config()
+    return contextlib.nullcontext()
 
 
 def print_console(results: list[Result]) -> None:
@@ -123,6 +136,7 @@ def run_stage(args: argparse.Namespace) -> int:
         import sample_data
 
         messages = sample_data.MESSAGES
+        source_name = "demo"
     else:
         import mailsource
 
@@ -132,10 +146,13 @@ def run_stage(args: argparse.Namespace) -> int:
             print(f"error: mail source '{source.name}' unavailable — {reason}", file=sys.stderr)
             return 1
         messages = source.list_recent_messages(days=config.LOOKBACK_DAYS)
+        source_name = source.name
 
-    plans = staging.collect(messages)
+    with _fixture_config_if_demo(source_name):
+        plans = staging.collect(messages)
+        confirmation = staging.render_confirmation(plans)
     print()
-    print(staging.render_confirmation(plans))
+    print(confirmation)
     return 0
 
 

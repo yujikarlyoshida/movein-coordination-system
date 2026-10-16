@@ -515,6 +515,70 @@ def test_newest_trigger_wins_for_a_repeated_unit():
     assert results[0].trigger_subject == "UPDATED"
 
 
+# ---------------------------------------------------------------------------
+# demo mode must survive a real config_local.py
+# ---------------------------------------------------------------------------
+
+_HOSTILE_SENDERS = ["someone.real@corp.invalid"]
+_HOSTILE_PROPERTY = "Hostile Local Property"
+
+
+def _with_hostile_local_config(fn):
+    # Stands in for an installed copy's config_local.py: real senders, none of
+    # whom sent anything in the sample mailbox. Restores the suite's pins after.
+    saved = (config.TRIGGER_SENDERS, config.PROPERTY_NAME)
+    config.TRIGGER_SENDERS = list(_HOSTILE_SENDERS)
+    config.PROPERTY_NAME = _HOSTILE_PROPERTY
+    try:
+        return fn()
+    finally:
+        config.TRIGGER_SENDERS, config.PROPERTY_NAME = saved
+
+
+def test_demo_board_ignores_a_local_sender_roster():
+    import app
+
+    def run():
+        results, _ = app.collect(use_demo=True)
+        # The pin is scoped: the real roster is back once the demo run ends, or
+        # the next real poll would match nothing.
+        assert config.TRIGGER_SENDERS == _HOSTILE_SENDERS
+        assert config.PROPERTY_NAME == _HOSTILE_PROPERTY
+        return results
+
+    results = _with_hostile_local_config(run)
+    assert {r.unit for r in results} == {"0735", "1204", "0901", "1408"}
+
+
+def test_demo_fallback_source_ignores_a_local_sender_roster():
+    # get_source() hands back the sample mailbox when Graph is not configured.
+    import app
+    import mailsource
+
+    original = mailsource.get_source
+    mailsource.get_source = lambda *a, **k: mailsource.DemoMailSource()
+    try:
+        results, _ = _with_hostile_local_config(lambda: app.collect())
+    finally:
+        mailsource.get_source = original
+    assert {r.unit for r in results} == {"0735", "1204", "0901", "1408"}
+
+
+def test_demo_staging_ignores_a_local_config():
+    import argparse
+    import contextlib
+    import io
+
+    import app
+
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        _with_hostile_local_config(lambda: app.run_stage(argparse.Namespace(demo=True)))
+    text = out.getvalue()
+    assert "0735" in text and "1408" in text
+    assert _HOSTILE_PROPERTY not in text
+
+
 def test_no_resident_data_reaches_the_results():
     # The privacy property, asserted rather than trusted.
     #

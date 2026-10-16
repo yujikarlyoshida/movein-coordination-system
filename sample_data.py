@@ -26,6 +26,41 @@ has to survive, and none of it identifies anyone.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
+import config
+
+# The roster these messages are addressed from, and the property they belong to.
+# An installed copy's config_local.py replaces config.TRIGGER_SENDERS with real
+# colleagues, none of whom sent anything below -- so without pinning, demo mode
+# on the one machine that matters finds zero triggers and shows an empty board.
+FIXTURE_SENDERS = [
+    "leasing.manager@example.com",
+    "leasing.specialist@example.com",
+    "leasing.associate@example.com",
+]
+FIXTURE_PROPERTY = "The Property"
+
+
+@contextmanager
+def fixture_config():
+    """
+    Evaluate the sample mailbox against its own roster, then put config back.
+
+    Scoped rather than a permanent override: the menu bar falls back to this
+    mailbox on a tick when Graph is unavailable and uses the real one on the
+    next. A pin that outlived the demo run would make every real trigger stop
+    matching, and the board would go quietly empty in production.
+    """
+    saved = (config.TRIGGER_SENDERS, config.PROPERTY_NAME)
+    config.TRIGGER_SENDERS = list(FIXTURE_SENDERS)
+    config.PROPERTY_NAME = FIXTURE_PROPERTY
+    try:
+        yield
+    finally:
+        config.TRIGGER_SENDERS, config.PROPERTY_NAME = saved
+
+
 MESSAGES = [
     # ---- 0735: a plain new lease, nothing follows it. The one that needs you.
     {
