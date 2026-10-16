@@ -355,6 +355,104 @@ def test_a_trigger_cannot_mark_itself_handled():
 
 
 # ---------------------------------------------------------------------------
+# evidence must postdate the trigger it clears
+# ---------------------------------------------------------------------------
+
+config.EVIDENCE_CLOCK_SKEW_MINUTES = 5
+
+_TRIGGER_AT = "2026-10-01T12:00:00Z"
+
+
+def _announcement(received):
+    return {"id": "a", "subject": "0640 - added to all platforms",
+            "body": "0640 has been added to all platforms.", "received": received}
+
+
+def _lease_0640(msg_id="t", subject="New Resident Move In - 0640", received=_TRIGGER_AT):
+    return {"id": msg_id, "sender": "leasing.manager@example.com", "subject": subject,
+            "received": received,
+            "body": "Lease generated\nName: Resident Foxtrot\n"
+                    "Email: f@test.invalid\nApartment Number: 0640\n"}
+
+
+def test_older_evidence_does_not_clear_a_newer_trigger():
+    # Unit numbers are reused. An announcement for the previous tenant's move-in
+    # says nothing about this lease; counting it is a false HANDLED, the
+    # dangerous direction.
+    msgs = [_announcement("2026-08-01T12:00:00Z")]
+    assert rules.find_evidence("0640", msgs, since=_TRIGGER_AT) == []
+
+
+def test_same_day_but_earlier_evidence_does_not_count():
+    msgs = [_announcement("2026-10-01T09:00:00Z")]
+    assert rules.find_evidence("0640", msgs, since=_TRIGGER_AT) == []
+
+
+def test_evidence_within_clock_skew_counts():
+    # Two mailboxes can disagree by a minute or two. Evidence a hair before the
+    # trigger is the same event, not an older one.
+    msgs = [_announcement("2026-10-01T11:57:00Z")]
+    assert len(rules.find_evidence("0640", msgs, since=_TRIGGER_AT)) == 1
+
+
+def test_later_evidence_counts():
+    msgs = [_announcement("2026-10-01T12:03:00Z")]
+    assert len(rules.find_evidence("0640", msgs, since=_TRIGGER_AT)) == 1
+
+
+def test_offsets_are_compared_as_instants():
+    # 08:03 at UTC-4 is 12:03 UTC: after the trigger, so it counts.
+    msgs = [_announcement("2026-10-01T08:03:00-04:00")]
+    assert len(rules.find_evidence("0640", msgs, since=_TRIGGER_AT)) == 1
+
+
+def test_evidence_with_no_readable_date_does_not_count():
+    # It cannot be shown to postdate the trigger.
+    for received in ("", "yesterday"):
+        assert rules.find_evidence("0640", [_announcement(received)], since=_TRIGGER_AT) == []
+
+
+def test_stale_announcement_leaves_the_unit_needing_outreach():
+    # The reported repro, end to end: an August announcement must not mark an
+    # October lease for the same unit as handled.
+    msgs = [_announcement("2026-08-01T12:00:00Z"), _lease_0640()]
+    (r,) = rules.evaluate(msgs)
+    assert r.verdict is Verdict.NEEDS_OUTREACH
+    assert r.evidence == []
+    assert any("predates this trigger" in p for p in r.problems)
+
+
+def test_updated_resend_is_judged_on_mail_after_the_resend():
+    # A colleague handled the original; then a corrected version arrived. The
+    # newest trigger wins, and only mail after IT can clear it.
+    original = _lease_0640("t-old", received="2026-10-01T10:00:00Z")
+    done = _announcement("2026-10-01T10:30:00Z")
+    resend = _lease_0640("t-new", "UPDATED: New Resident Move In - 0640")
+    (r,) = rules.evaluate([original, done, resend])
+    assert r.trigger_id == "t-new"
+    assert r.verdict is Verdict.NEEDS_OUTREACH
+
+    later = _announcement("2026-10-01T12:20:00Z") | {"id": "a2"}
+    (r,) = rules.evaluate([original, done, resend, later])
+    assert r.verdict is Verdict.HANDLED
+
+
+def test_unreadable_trigger_date_is_unclear_not_handled():
+    msgs = [_announcement("2026-10-01T12:30:00Z"), _lease_0640(received="")]
+    (r,) = rules.evaluate(msgs)
+    assert r.verdict is Verdict.UNCLEAR
+    assert r.evidence == []
+
+
+def test_received_parsing_accepts_graph_shapes():
+    assert rules.parse_received("2026-08-30T09:15:00Z") is not None
+    assert rules.parse_received("2026-08-30T09:15:00.1234567Z") is not None
+    assert rules.parse_received("2026-08-30T09:15:00") is not None
+    assert rules.parse_received("not a date") is None
+    assert rules.parse_received(None) is None
+
+
+# ---------------------------------------------------------------------------
 # end to end
 # ---------------------------------------------------------------------------
 

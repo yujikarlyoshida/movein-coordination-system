@@ -19,6 +19,9 @@ duplicate outreach in five cases out of six -- worse than doing nothing.
 
 from __future__ import annotations
 
+import re
+from datetime import datetime, timedelta, timezone
+
 import config
 from models import Evidence, Result, Verdict
 
@@ -67,8 +70,6 @@ def _mentions_unit(text: str, unit: str) -> bool:
     where the canonical unit is "0735". Bounded by non-digits so that unit 0735
     is not matched by a subject mentioning 10735 or an order number.
     """
-    import re
-
     candidates = {unit, unit.lstrip("0")}
     for form in candidates:
         if not form:
@@ -98,8 +99,6 @@ def is_announcement(body: str) -> bool:
     # Patterns, for the phrasings where words sit between the verb and the
     # object -- "added the resident of 706 to all platforms". See
     # config.ANNOUNCEMENT_PATTERNS.
-    import re
-
     for pattern in getattr(config, "ANNOUNCEMENT_PATTERNS", []):
         if re.search(pattern, text):
             return True
@@ -145,7 +144,34 @@ def is_welcome_email(subject: str) -> bool:
     return any(hint in text for hint in config.WELCOME_SUBJECT_HINTS)
 
 
-def find_evidence(unit: str, messages: list[dict], trigger_id: str = "") -> list[Evidence]:
+def parse_received(value: object) -> datetime | None:
+    """
+    Read a message timestamp as an aware UTC datetime, or None if unreadable.
+
+    Graph sends "2026-08-30T09:15:00Z". Older Pythons reject the "Z", and some
+    sources add more fractional digits than fromisoformat accepts, so both are
+    normalised first. A timestamp with no zone is taken as UTC.
+    """
+    text = normalise(value)
+    if not text:
+        return None
+    text = re.sub(r"[Zz]$", "+00:00", text)
+    text = re.sub(r"(\.\d{6})\d+", r"\1", text)
+    try:
+        when = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.astimezone(timezone.utc)
+
+
+def find_evidence(
+    unit: str,
+    messages: list[dict],
+    trigger_id: str = "",
+    since: str | None = None,
+) -> list[Evidence]:
     """
     Look for proof that `unit` has already been handled.
 
@@ -157,12 +183,31 @@ def find_evidence(unit: str, messages: list[dict], trigger_id: str = "") -> list
     The trigger message itself is excluded by id. Without that, a trigger
     containing the word "transfer" and the unit number could match its own
     announcement test and mark itself handled the moment it arrived.
+
+    With `since` (the trigger's received time), only mail at or after it counts,
+    less config.EVIDENCE_CLOCK_SKEW_MINUTES. Unit numbers are reused, so an
+    announcement from a previous tenant's move-in would otherwise clear a new
+    lease. If `since` is given but unreadable, or a candidate's own date is
+    unreadable, nothing can be shown to postdate the trigger and it does not
+    count: a false HANDLED is the dangerous direction.
     """
     found: list[Evidence] = []
+
+    cutoff = None
+    if since is not None:
+        cutoff = parse_received(since)
+        if cutoff is None:
+            return found
+        cutoff -= timedelta(minutes=config.EVIDENCE_CLOCK_SKEW_MINUTES)
 
     for m in messages:
         if trigger_id and m.get("id") == trigger_id:
             continue
+
+        if cutoff is not None:
+            when = parse_received(m.get("received"))
+            if when is None or when < cutoff:
+                continue
 
         subject = m.get("subject", "") or ""
         body = m.get("body", "") or ""
@@ -211,9 +256,20 @@ def evaluate(messages: list[dict]) -> list[Result]:
 
     for unit, trigger in by_unit.items():
         problems = list(getattr(trigger, "problems", []))
-        evidence = find_evidence(unit, messages, trigger_id=getattr(trigger, "message_id", ""))
+        trigger_id = getattr(trigger, "message_id", "")
+        trigger_received = getattr(trigger, "received", "")
 
-        if evidence:
+        # Evidence is judged against THIS trigger's time. For an updated or
+        # corrected resend that is the resend, so a colleague's note about the
+        # original does not clear the new version.
+        evidence = find_evidence(unit, messages, trigger_id=trigger_id, since=trigger_received)
+
+        if parse_received(trigger_received) is None:
+            # Without a trigger date, older mail cannot be ruled out as
+            # evidence, so neither HANDLED nor a confident NEEDS OUTREACH holds.
+            verdict = Verdict.UNCLEAR
+            problems.append("trigger date unreadable; earlier mail could not be ruled out as evidence")
+        elif evidence:
             verdict = Verdict.HANDLED
         elif not getattr(trigger, "residents", None):
             # A qualifying message whose contents could not be read. Do not
@@ -222,6 +278,10 @@ def evaluate(messages: list[dict]) -> list[Result]:
             verdict = Verdict.UNCLEAR
         else:
             verdict = Verdict.NEEDS_OUTREACH
+            # Most often an updated resend after a colleague already acted on
+            # the original. Still needs a look, but say why it might not.
+            if find_evidence(unit, messages, trigger_id=trigger_id):
+                problems.append("older handled mail exists for this unit but predates this trigger; not counted")
 
         results.append(
             Result(

@@ -143,6 +143,17 @@ WELCOME_SUBJECT_HINTS = [
     "welcome",
 ]
 
+# Evidence only clears a trigger if it arrived at or after that trigger. A unit
+# number gets reused: an announcement for last tenant's move-in into 0640 says
+# nothing about this tenant's lease, and counting it would be a false HANDLED.
+#
+# The tolerance allows for clock disagreement between mailboxes -- a sent item
+# stamped by one server, a trigger by another -- so evidence up to this many
+# minutes BEFORE the trigger still counts. Keep it small: the fastest real
+# hand-off was three minutes after the trigger, so anything larger than a few
+# minutes starts letting genuinely older mail through.
+EVIDENCE_CLOCK_SKEW_MINUTES = 5
+
 # How far back to look for both triggers and evidence. Long enough to cover a
 # lease generated well ahead of move-in; short enough to keep the query cheap.
 LOOKBACK_DAYS = 30
