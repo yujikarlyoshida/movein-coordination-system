@@ -171,21 +171,25 @@ def compose_welcome(unit: str, residents: list) -> tuple[str, str, list[str], li
 # Building the plan
 # ---------------------------------------------------------------------------
 
-def stage_for_move_in(move_in, residents: list) -> StagedPlan:
+def stage_for_move_in(result, residents: list) -> StagedPlan:
     """
     Prepare every action for one move-in. Commits nothing.
+
+    `result` is the rules.Result for the unit; `residents` are the
+    TriggerResident objects parsed from the trigger that result was judged on.
+    They go straight from the parse into the draft and are never stored.
 
     Three actions, matching the three tabs you work through by hand: the welcome
     email, the internet portal entry, and the resident app entry.
     """
     plan = StagedPlan(
-        unit=move_in.unit,
-        trigger_subject=move_in.trigger_subject,
-        problems=[p for p in (move_in.problems or "").split("\n") if p],
+        unit=result.unit,
+        trigger_subject=result.trigger_subject,
+        problems=list(result.problems),
     )
 
     # ---- 1. Welcome email, composed in full.
-    subject, body, recipients, compose_problems = compose_welcome(move_in.unit, residents)
+    subject, body, recipients, compose_problems = compose_welcome(result.unit, residents)
     plan.problems.extend(compose_problems)
 
     draft_blocked = []
@@ -195,9 +199,9 @@ def stage_for_move_in(move_in, residents: list) -> StagedPlan:
     plan.actions.append(
         StagedAction(
             kind="welcome_draft",
-            unit=move_in.unit,
+            unit=result.unit,
             # Count, never names -- this string reaches the menu bar and the log.
-            summary=f"Welcome email for {len(residents)} resident(s) in #{move_in.unit}",
+            summary=f"Welcome email for {len(residents)} resident(s) in #{result.unit}",
             payload={"subject": subject, "body": body, "to": recipients},
             blocked_on=draft_blocked,
         )
@@ -209,10 +213,10 @@ def stage_for_move_in(move_in, residents: list) -> StagedPlan:
     plan.actions.append(
         StagedAction(
             kind="internet_portal",
-            unit=move_in.unit,
-            summary=f"Internet portal entry for #{move_in.unit}",
+            unit=result.unit,
+            summary=f"Internet portal entry for #{result.unit}",
             payload={
-                "unit": move_in.unit,
+                "unit": result.unit,
                 "residents": [
                     {
                         "first_name": r.first_name,
@@ -248,10 +252,10 @@ def stage_for_move_in(move_in, residents: list) -> StagedPlan:
     plan.actions.append(
         StagedAction(
             kind="resident_app",
-            unit=move_in.unit,
-            summary=f"Resident app entry for #{move_in.unit}",
+            unit=result.unit,
+            summary=f"Resident app entry for #{result.unit}",
             payload={
-                "unit": move_in.unit,
+                "unit": result.unit,
                 "residents": [
                     {
                         # The essential four, and nothing else.
@@ -271,7 +275,7 @@ def stage_for_move_in(move_in, residents: list) -> StagedPlan:
             },
             blocked_on=[
                 "Resident app sign-in (no API; the session must be open already)",
-                f"Resident app has no unit field — link #{move_in.unit} by hand after adding",
+                f"Resident app has no unit field — link #{result.unit} by hand after adding",
             ],
         )
     )
@@ -291,15 +295,16 @@ def collect(messages: list[dict]) -> list[StagedPlan]:
     store.migrate()
 
     results = rules.evaluate(messages)
-    found = triggers.find_triggers(messages)
-    by_unit = {t.units[0]: t for t in found if t.units}
+    # Keyed by message id, not unit: a unit with an original and an updated
+    # resend must be staged from the same trigger rules.evaluate judged.
+    by_id = {t.message_id: t for t in triggers.find_triggers(messages)}
 
     plans: list[StagedPlan] = []
 
     for result in results:
-        trigger = by_unit.get(result.unit)
+        trigger = by_id.get(result.trigger_id)
 
-        move_in = store.record_trigger(
+        store.record_trigger(
             unit=result.unit,
             message_id=result.trigger_id,
             subject=result.trigger_subject,
@@ -309,7 +314,6 @@ def collect(messages: list[dict]) -> list[StagedPlan]:
             evidence_kind=result.evidence[0].kind if result.evidence else "",
             evidence_detail=result.evidence[0].describe() if result.evidence else "",
             problems=result.problems,
-            residents=trigger.residents if trigger else None,
         )
 
         # Already handled by a colleague: recorded, and that is all. Preparing
@@ -317,8 +321,8 @@ def collect(messages: list[dict]) -> list[StagedPlan]:
         if result.verdict is Verdict.HANDLED:
             continue
 
-        residents = store.residents_for(move_in)
-        plans.append(stage_for_move_in(move_in, residents))
+        residents = list(trigger.residents) if trigger else []
+        plans.append(stage_for_move_in(result, residents))
 
     return plans
 

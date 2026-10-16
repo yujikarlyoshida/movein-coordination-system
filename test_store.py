@@ -281,6 +281,34 @@ def test_multiple_residents_share_one_draft():
     assert len(drafts[0].payload["to"]) == 2
 
 
+def test_staging_stores_no_residents():
+    # Residents go from the parse straight into the draft. Nothing needs them
+    # afterwards, so nothing keeps them.
+    _fresh()
+    staging.collect(sample_data.MESSAGES)
+    from residentdb.models import Resident
+
+    assert Resident.objects.count() == 0
+
+
+def test_a_resent_trigger_is_staged_from_the_newest_version():
+    # rules.evaluate judges the newest trigger for a unit; the draft must be
+    # built from that same message, not whichever one happened to be listed last.
+    _fresh()
+
+    def lease(msg_id, received, email):
+        return {"id": msg_id, "sender": "leasing.manager@example.com",
+                "subject": "New Resident Move In - 0500", "received": received,
+                "body": f"Lease generated\nName: Resident Hotel\nEmail: {email}\n"
+                        "Apartment Number: 0500\n"}
+
+    msgs = [lease("new", "2026-08-02T10:00:00Z", "corrected@test.invalid"),
+            lease("old", "2026-08-01T10:00:00Z", "original@test.invalid")]
+    (plan,) = staging.collect(msgs)
+    draft = next(a for a in plan.actions if a.kind == "welcome_draft")
+    assert draft.payload["to"] == ["corrected@test.invalid"]
+
+
 def test_summaries_carry_no_resident_names():
     # Summaries reach the menu bar, notifications and logs -- surfaces with no
     # access control. They must be counts and unit numbers only.
