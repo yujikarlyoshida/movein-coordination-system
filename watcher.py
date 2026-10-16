@@ -199,10 +199,6 @@ class Watcher:
 
 def main() -> int:
     """Run headless. Used by the LaunchAgent when there is no UI."""
-    import store
-
-    store.migrate()
-
     watcher = Watcher()
     print(f"watching every {watcher.interval}s; paused={is_paused()}", flush=True)
 

@@ -31,8 +31,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import config
+import history
 import rules
-import store
 import triggers
 from models import Verdict
 
@@ -292,8 +292,6 @@ def collect(messages: list[dict]) -> list[StagedPlan]:
     composed for it, no portal payload is built. Across every move-in audited so
     far, that is the branch taken almost every time.
     """
-    store.migrate()
-
     results = rules.evaluate(messages)
     # Keyed by message id, not unit: a unit with an original and an updated
     # resend must be staged from the same trigger rules.evaluate judged.
@@ -304,16 +302,12 @@ def collect(messages: list[dict]) -> list[StagedPlan]:
     for result in results:
         trigger = by_id.get(result.trigger_id)
 
-        store.record_trigger(
-            unit=result.unit,
+        received = rules.parse_received(result.trigger_received)
+        history.record(
             message_id=result.trigger_id,
-            subject=result.trigger_subject,
-            sender=result.trigger_sender,
-            received=_parse_received(result.trigger_received),
+            unit=result.unit,
             status=_status_for(result.verdict),
-            evidence_kind=result.evidence[0].kind if result.evidence else "",
-            evidence_detail=result.evidence[0].describe() if result.evidence else "",
-            problems=result.problems,
+            trigger_received=received.isoformat() if received else "",
         )
 
         # Already handled by a colleague: recorded, and that is all. Preparing
@@ -333,18 +327,6 @@ def _status_for(verdict) -> str:
         Verdict.HANDLED: "handled",
         Verdict.UNCLEAR: "unclear",
     }.get(verdict, "unclear")
-
-
-def _parse_received(value):
-    """Graph timestamps are ISO 8601 with a trailing Z that Python 3.10 rejects."""
-    if not value:
-        return None
-    from datetime import datetime
-
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
 
 
 # ---------------------------------------------------------------------------

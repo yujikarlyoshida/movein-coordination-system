@@ -430,9 +430,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.demo:
-        import store
+        import history
 
-        store.use_throwaway_database()
+        history.use_throwaway_log()
 
     nsapp = NSApplication.sharedApplication()
 

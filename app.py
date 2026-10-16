@@ -133,10 +133,10 @@ def run_stage(args: argparse.Namespace) -> int:
     import staging
 
     if args.demo:
+        import history
         import sample_data
-        import store
 
-        store.use_throwaway_database()
+        history.use_throwaway_log()
         messages = sample_data.MESSAGES
         source_name = "demo"
     else:
@@ -159,57 +159,45 @@ def run_stage(args: argparse.Namespace) -> int:
 
 
 def run_history(args: argparse.Namespace) -> int:
-    """
-    What the tool has recorded. Reads only plaintext columns -- no resident
-    name or address is decrypted to print this.
-    """
-    import store
+    """What the tool has recorded: units, statuses and when they changed."""
+    import history
 
-    store.migrate()
-    rows = store.history(limit=50)
+    rows = history.history(limit=50)
 
     if not rows:
         print("nothing recorded yet.")
         return 0
 
-    counts = store.stats()
+    counts = history.stats()
     print(f"\n{len(rows)} recorded move-in(s):", ", ".join(
         f"{k}={v}" for k, v in sorted(counts.items())
     ), "\n")
 
     for row in rows:
-        when = row.trigger_received.strftime("%Y-%m-%d") if row.trigger_received else "  ??  "
-        print(f"  {when}  #{row.unit:<6} {row.status:<16} {row.trigger_subject[:52]}")
-        if row.evidence_detail:
-            print(f"              └─ {row.evidence_detail}")
+        when = row.trigger_received[:10] or "    ??    "
+        print(f"  {when}  #{row.unit:<6} {row.status:<16} since {row.status_changed_at[:16]}")
     print()
     return 0
 
 
 def run_db(args: argparse.Namespace) -> int:
     """
-    Where the database is, and what state it is in.
+    Where the history log is, and what state it is in.
 
-    The repository contains no database and never has -- this command is the
-    link to it. It prints the path, reports whether the key is in the Keychain
-    or has fallen back to a file, and offers to reveal it in Finder.
-
-    Deliberately prints no resident data. Knowing where the database is and
-    knowing what is in it are different permissions, and only the first one
-    belongs in a command you might run while someone is looking over your
-    shoulder.
+    The repository contains no log and never has -- this command is the link to
+    it. The log holds unit numbers, statuses and timestamps only, so there is no
+    key to report on.
     """
     import subprocess
     import sys as _sys
+    from pathlib import Path
 
-    import keystore
-    import store
+    import history
 
-    store.migrate()
-    path = store.DB_PATH
+    path = Path(history.path())
 
     print()
-    print("  Local encrypted database")
+    print("  Local history log")
     print(f"  {path}")
     print()
 
@@ -218,26 +206,21 @@ def run_db(args: argparse.Namespace) -> int:
         mode = oct(path.stat().st_mode & 0o777)
         print(f"  size         {size:,} bytes")
         print(f"  permissions  {mode}  (0o600 = only you can read it)")
+        counts = history.stats()
+        if counts:
+            total = sum(counts.values())
+            print(f"  contents     {total} move-in(s): "
+                  + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     else:
         print("  not created yet — it appears on the first recorded move-in")
+    print("  holds        unit numbers, statuses and timestamps; no names, emails or phones")
 
-    # Where the key is matters more than where the database is. An encrypted
-    # file whose key sits beside it is a locked door with the key in the lock.
-    if keystore.FALLBACK_KEY_FILE.exists():
-        print(f"  key          {keystore.FALLBACK_KEY_FILE}")
-        print("               WARNING: on the same disk as the database.")
-        print("               The Keychain was unavailable when the key was made.")
-    else:
-        print(f"  key          macOS Keychain — service '{keystore.KEYCHAIN_SERVICE}'")
-        print("               not on disk, not in this repository, not recoverable if lost")
-
-    counts = store.stats()
-    if counts:
-        total = sum(counts.values())
-        print(f"  contents     {total} move-in(s): "
-              + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-    print()
-    print("  Nothing here is in git. `git log --all` shows no database in any commit.")
+    if history.LEGACY_DB_PATH.exists():
+        print()
+        print("  An encrypted resident database from an earlier version is still at")
+        print(f"  {history.LEGACY_DB_PATH}")
+        print("  Nothing reads it any more. Remove it, its key file and its Keychain item")
+        print("  by hand once you no longer need it.")
     print()
 
     if args.reveal and _sys.platform == "darwin" and path.exists():
@@ -257,14 +240,14 @@ def main() -> int:
     parser.add_argument("--history", action="store_true", help="show what has been recorded")
     parser.add_argument("--pause", action="store_true", help="pause the background watcher")
     parser.add_argument("--resume", action="store_true", help="resume the background watcher")
-    parser.add_argument("--db", action="store_true", help="where the local encrypted database is")
+    parser.add_argument("--db", action="store_true", help="where the local history log is")
     parser.add_argument("--reveal", action="store_true", help="with --db, open it in Finder")
     args = parser.parse_args()
 
     if args.demo:
-        import store
+        import history
 
-        store.use_throwaway_database()
+        history.use_throwaway_log()
 
     import watcher
 

@@ -1,32 +1,26 @@
 """
-Tests for the encrypted database and the staging pipeline.
+Tests for the history log and the staging pipeline.
 
-Run with:  python test_store.py
-       or: python -m pytest test_store.py -v
+Run with:  python test_history.py
+       or: python -m pytest test_history.py -v
 
-Uses a scratch database and a throwaway key, both set before anything imports
-Django, so a test run can never touch the real database or the real Keychain
-item.
+Uses a scratch log, set before anything imports history.py, so a test run can
+never touch the real one.
 
-THE TEST THAT MATTERS MOST is test_pii_is_not_readable_in_the_raw_file. It opens
-the database file as bytes and greps for the names it just wrote. Every other
-assertion here checks that the code behaves as designed; that one checks the
-design actually holds on disk, which is the only place it counts.
+THE TEST THAT MATTERS MOST is test_no_resident_data_reaches_the_log_file. It
+runs the whole staging pipeline on the sample mailbox, then reads the log file
+as bytes and greps for every name, address, phone number and subject in that
+mailbox. The log is unencrypted on purpose; that is only safe while this holds.
 """
 
 from __future__ import annotations
 
 import os
 import tempfile
-from dataclasses import dataclass, field
 
-# Must be set before store/Django are imported.
+# Must be set before history is imported.
 _TMP = tempfile.mkdtemp(prefix="movein-test-")
-os.environ["MOVEIN_DB_PATH"] = os.path.join(_TMP, "test.sqlite3")
-
-from cryptography.fernet import Fernet  # noqa: E402
-
-os.environ["MOVEIN_DB_KEY"] = Fernet.generate_key().decode()
+os.environ["MOVEIN_HISTORY_PATH"] = os.path.join(_TMP, "history.sqlite3")
 
 import config  # noqa: E402
 
@@ -39,132 +33,67 @@ config.TRIGGER_SENDERS = [
 ]
 config.PROPERTY_NAME = "The Property"
 
+import history  # noqa: E402
 import sample_data  # noqa: E402
 import staging  # noqa: E402
-import store  # noqa: E402
 import watcher  # noqa: E402
 
-DB_FILE = os.environ["MOVEIN_DB_PATH"]
-
-
-@dataclass
-class FakeResident:
-    """Stands in for triggers.TriggerResident."""
-
-    first_name: str = "Resident"
-    last_name: str = "Zulu"
-    email: str = "resident-zulu@test.invalid"
-    phone: str = "555-0199"
-    unit: str = "0512"
-    lease_start: str = "10/01/2026"
-    date_of_birth: str = ""
+LOG_FILE = os.environ["MOVEIN_HISTORY_PATH"]
 
 
 def _fresh():
-    """A migrated, empty database."""
-    store.migrate()
-    from residentdb.models import Action, MoveIn, Resident
-
-    Action.objects.all().delete()
-    Resident.objects.all().delete()
-    MoveIn.objects.all().delete()
+    """An empty log."""
+    if os.path.exists(LOG_FILE):
+        os.remove(LOG_FILE)
 
 
 # ---------------------------------------------------------------------------
-# encryption
+# what reaches disk
 # ---------------------------------------------------------------------------
 
-def test_round_trip_returns_plaintext():
+def test_no_resident_data_reaches_the_log_file():
     _fresh()
-    mi = store.record_trigger(
-        unit="0512", message_id="m-round-trip", residents=[FakeResident()]
-    )
-    r = store.residents_for(mi)[0]
+    staging.collect(sample_data.MESSAGES)
+    raw = open(LOG_FILE, "rb").read().lower()
 
-    assert r.first_name == "Resident"
-    assert r.email == "resident-zulu@test.invalid"
-    assert r.full_name == "Resident Zulu"
+    for secret in (
+        b"alpha", b"bravo", b"charlie", b"delta", b"echo",       # names
+        b"@test.invalid",                                         # resident emails
+        b"555-01",                                                # phones
+        b"@example.com",                                          # senders
+        b"new resident move in", b"transfer", b"roommate",        # subjects
+    ):
+        assert secret not in raw, f"{secret!r} was written to the history log"
 
 
-def test_pii_is_not_readable_in_the_raw_file():
-    # The whole point. Write a record, then read the database file as bytes and
-    # confirm none of the personal data appears in it.
+def test_units_and_statuses_are_recorded():
     _fresh()
-    store.record_trigger(
-        unit="0512",
-        message_id="m-raw-bytes",
-        residents=[
-            FakeResident(
-                first_name="Distinctive",
-                last_name="Surname",
-                email="distinctive@test.invalid",
-                phone="555-0177",
-            )
-        ],
-    )
+    staging.collect(sample_data.MESSAGES)
+    by_unit = {e.unit: e.status for e in history.history()}
 
-    # Close the connection so everything is flushed to disk rather than sitting
-    # in a write-ahead log the test would not see.
-    from django.db import connection
-
-    connection.close()
-
-    raw = open(DB_FILE, "rb").read()
-
-    for secret in (b"Distinctive", b"Surname", b"distinctive@test.invalid", b"555-0177"):
-        assert secret not in raw, f"{secret!r} was written in plaintext"
+    assert by_unit == {
+        "0735": "needs_outreach",
+        "1408": "needs_outreach",
+        "0901": "handled",
+        "1204": "handled",
+    }
+    assert history.stats() == {"needs_outreach": 2, "handled": 2}
 
 
-def test_queryable_columns_stay_plaintext():
-    # The other half of the trade-off: unit and status must remain searchable,
-    # because every lookup in the app starts with one of them.
+def test_the_log_file_is_private():
     _fresh()
-    store.record_trigger(unit="0512", message_id="m-queryable", residents=[FakeResident()])
-
-    from django.db import connection
-
-    connection.close()
-    raw = open(DB_FILE, "rb").read()
-
-    assert b"0512" in raw
-    assert b"needs_outreach" in raw
+    history.record(message_id="m-mode", unit="0512", status="needs_outreach")
+    assert os.stat(LOG_FILE).st_mode & 0o777 == 0o600
 
 
-def test_wrong_key_raises_rather_than_returning_garbage():
-    # A wrong key must fail loudly. Returning ciphertext as if it were a name
-    # would put unreadable text into an email addressed to a real person.
-    from django.core.exceptions import ValidationError
-
-    _fresh()
-    mi = store.record_trigger(
-        unit="0512", message_id="m-wrong-key", residents=[FakeResident()]
-    )
-
-    import residentdb.fields as fields
-
-    original = fields._cipher
-    try:
-        fields._cipher = Fernet(Fernet.generate_key())
-        try:
-            _ = store.residents_for(mi)[0].first_name
-        except ValidationError:
-            pass
-        else:
-            raise AssertionError("decryption with the wrong key silently succeeded")
-    finally:
-        fields._cipher = original
-
-
-def test_the_database_lives_outside_the_repository():
-    # The strongest protection against committing resident data is that the file
-    # is not in the project directory to begin with. A gitignore rule can be
-    # overridden with `git add -f`; a file that isn't there cannot be added at all.
+def test_the_log_lives_outside_the_repository():
+    # The strongest protection against committing it is that the file is not in
+    # the project directory to begin with.
     import pathlib
 
     repo = pathlib.Path(__file__).resolve().parent
-    assert repo not in store.DB_PATH.resolve().parents, (
-        f"the database is inside the repository at {store.DB_PATH} -- "
-        f"one `git add -A` from being committed"
+    assert repo not in history.LOG_PATH.resolve().parents, (
+        f"the history log is inside the repository at {history.LOG_PATH}"
     )
 
 
@@ -189,32 +118,40 @@ def test_the_same_trigger_twice_creates_one_row():
     # The watcher re-reads the same mailbox every fifteen minutes forever. If
     # this failed, a unit open for a day would accrue ninety-six duplicate rows.
     _fresh()
-    from residentdb.models import MoveIn, Resident
-
     for _ in range(3):
-        store.record_trigger(
-            unit="0512", message_id="m-repeat", residents=[FakeResident()]
-        )
+        history.record(message_id="m-repeat", unit="0512", status="needs_outreach")
 
-    assert MoveIn.objects.count() == 1
-    assert Resident.objects.count() == 1
+    assert len(history.history()) == 1
 
 
 def test_status_updates_on_a_later_pass():
     # A unit that needs outreach now may be handled in an hour. Noticing that
     # transition is the tool's entire job.
     _fresh()
-    store.record_trigger(unit="0512", message_id="m-transition", status="needs_outreach")
-    store.record_trigger(
-        unit="0512",
-        message_id="m-transition",
-        status="handled",
-        evidence_kind="announcement",
-    )
+    history.record(message_id="m-transition", unit="0512", status="needs_outreach")
+    (before,) = history.history()
 
-    from residentdb.models import MoveIn
+    # Same status again: nothing changed, so the change time must not move.
+    history.record(message_id="m-transition", unit="0512", status="needs_outreach")
+    (same,) = history.history()
+    assert same.status_changed_at == before.status_changed_at
 
-    assert MoveIn.objects.get(trigger_message_id="m-transition").status == "handled"
+    import time
+
+    time.sleep(1.1)  # timestamps are to the second
+    history.record(message_id="m-transition", unit="0512", status="handled")
+    (after,) = history.history()
+
+    assert after.status == "handled"
+    assert after.first_seen == before.first_seen
+    assert after.status_changed_at > before.status_changed_at
+
+
+def test_a_trigger_with_no_message_id_is_not_recorded():
+    # Nothing to key on, so it could not be updated idempotently.
+    _fresh()
+    history.record(message_id="", unit="?", status="unclear")
+    assert history.history() == []
 
 
 # ---------------------------------------------------------------------------
@@ -248,15 +185,12 @@ def test_draft_is_composed_in_full_before_confirmation():
 
 
 def test_staging_commits_nothing():
-    # Staged plans are inert: no action may claim to have been carried out.
+    # Staged plans are inert: no plan may claim to have been approved.
     _fresh()
     plans = staging.collect(sample_data.MESSAGES)
 
+    assert plans
     assert all(plan.approved is False for plan in plans)
-
-    from residentdb.models import Action
-
-    assert not Action.objects.filter(outcome="approved").exists()
 
 
 def test_blockers_are_reported_not_hidden():
@@ -279,16 +213,6 @@ def test_multiple_residents_share_one_draft():
 
     assert len(drafts) == 1
     assert len(drafts[0].payload["to"]) == 2
-
-
-def test_staging_stores_no_residents():
-    # Residents go from the parse straight into the draft. Nothing needs them
-    # afterwards, so nothing keeps them.
-    _fresh()
-    staging.collect(sample_data.MESSAGES)
-    from residentdb.models import Resident
-
-    assert Resident.objects.count() == 0
 
 
 def test_a_resent_trigger_is_staged_from_the_newest_version():
@@ -328,8 +252,8 @@ def test_summaries_carry_no_resident_names():
 # ---------------------------------------------------------------------------
 
 def test_pause_survives_as_a_file():
-    # Pausing must outlive the process. A pause held in memory would quietly
-    # expire on reboot and the tool would resume without saying so.
+    # Pause is a file, not an in-memory flag, so it survives the watcher being
+    # restarted by the LaunchAgent.
     was_paused = watcher.is_paused()
     try:
         watcher.pause()
@@ -342,26 +266,20 @@ def test_pause_survives_as_a_file():
         watcher.pause() if was_paused else watcher.resume()
 
 
-def test_demo_stage_never_touches_the_real_database_or_keychain():
+# ---------------------------------------------------------------------------
+# demo mode
+# ---------------------------------------------------------------------------
+
+def test_demo_stage_never_touches_the_real_log():
     # A fresh process, as a user would run it, with HOME moved to a scratch
-    # directory and a fake `security` first on PATH that records any call. If
-    # demo mode reached for the real database it would appear under HOME; if it
-    # asked the Keychain for the key, the fake would leave a log.
+    # directory. If demo mode wrote to the real log it would appear under HOME.
     import subprocess
     import sys
     from pathlib import Path
 
     home = Path(tempfile.mkdtemp(prefix="movein-home-"))
-    bin_dir = home / "bin"
-    bin_dir.mkdir()
-    log = home / "security-called"
-    fake = bin_dir / "security"
-    fake.write_text(f"#!/bin/sh\necho \"$@\" >> '{log}'\nexit 44\n")
-    fake.chmod(0o755)
-
     env = {k: v for k, v in os.environ.items() if not k.startswith("MOVEIN_")}
     env["HOME"] = str(home)
-    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
 
     repo = Path(__file__).resolve().parent
     proc = subprocess.run(
@@ -370,15 +288,21 @@ def test_demo_stage_never_touches_the_real_database_or_keychain():
     )
     assert proc.returncode == 0, proc.stderr
     assert "0735" in proc.stdout
-    assert not log.exists(), "demo mode asked the Keychain for a key"
     assert not (home / "Library" / "Application Support" / "MoveInTriage").exists()
 
 
-def test_throwaway_database_refuses_the_real_one():
-    # In-process the store is already configured (this file's scratch path), so
-    # the call is accepted; it would raise if that were the real database.
-    store.use_throwaway_database()
-    assert os.environ["MOVEIN_DB_PATH"] != str(store.DB_PATH)
+def test_throwaway_log_replaces_only_the_real_path():
+    saved = os.environ.pop("MOVEIN_HISTORY_PATH")
+    try:
+        history.use_throwaway_log()
+        assert history.path() == ":memory:"
+
+        # An explicit scratch path (this suite's) is left alone.
+        os.environ["MOVEIN_HISTORY_PATH"] = saved
+        history.use_throwaway_log()
+        assert history.path() == saved
+    finally:
+        os.environ["MOVEIN_HISTORY_PATH"] = saved
 
 
 # ---------------------------------------------------------------------------
