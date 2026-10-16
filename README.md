@@ -98,36 +98,27 @@ working — the worst kind of bug, because the tool keeps confidently reporting.
 `_patch`, no `_delete`. Adding a write would be a deliberate act, not an
 accident.
 
-**Resident data is stored, encrypted, and confined to two places.** Names,
-emails and phone numbers live in a local SQLite database with those columns
-encrypted individually (Fernet — AES-128-CBC with an HMAC). The key is held in
-the macOS Keychain, never beside the data. `test_pii_is_not_readable_in_the_raw_file`
-opens the database as bytes and greps for the names it just wrote, so the claim
-is checked against the disk rather than asserted in a comment.
+**Resident data is never stored.** Names, emails and phone numbers are parsed
+out of the trigger, go straight into the draft addressed to those residents, and
+are gone when the run ends. What persists is a local history log of unit
+numbers, statuses and timestamps, so `--history` can show when a unit went from
+needing outreach to handled. `test_no_resident_data_reaches_the_log_file` runs
+the whole pipeline on the sample mailbox, then reads the log file as bytes and
+greps for every name, address, phone, sender and subject in it, so the claim is
+checked against the disk rather than asserted in a comment.
 
-Column-level rather than whole-file encryption, deliberately. Encrypting the
-file protects it until the app opens it, then everything is plaintext in memory
-and in any log line that prints a row. Encrypting columns means a name is
-ciphertext everywhere except the one attribute access that needs it. The cost is
-real and worth naming: **you cannot query an encrypted column.** Fernet uses a
-random IV, so `WHERE first_name = ?` can never match. Everything the app filters
-on — unit, status, dates — is deliberately left plaintext, and none of it
-identifies a person alone.
+So PII reaches exactly one destination: the draft. Nothing renderable — board,
+menu bar, notification, log — carries more than a unit number and a subject
+line, which `test_no_resident_data_reaches_the_results` enforces separately.
 
-So PII reaches exactly two destinations: the encrypted database, and the draft
-addressed to those residents. Nothing renderable — board, menu bar, notification,
-log — carries more than a unit number and a subject line, which
-`test_no_resident_data_reaches_the_results` enforces separately.
-
-**This was not the original design.** The first version held no resident data at
-all, after management declined an earlier approach on data-privacy grounds. That
-constraint produced a better architecture and the no-PII rule is still enforced
-across every display surface. Storing records was a later, deliberate reversal to
-support tracking, and it is worth being straightforward about what changed:
-personal data now sits at rest on one machine. The mitigations — encryption at
-rest, a Keychain-held key, `0600` file permissions, a database path outside the
-repository, and a gitignore that catches it anyway — reduce that exposure but do
-not erase it.
+**This is the second time the design arrived here.** The first version held no
+resident data at all, after management declined an earlier approach on
+data-privacy grounds. A later version stored residents in an encrypted local
+database (Django, Fernet-encrypted columns, a Keychain-held key) to support
+tracking. On review, nothing read that data back except the draft being composed
+in the same run, so the encrypted store was removed: no personal data at rest is
+a stronger guarantee than encrypted personal data at rest, and it took Django,
+`cryptography` and the Keychain out of the app.
 
 The same rule applies to this repository. Every name, address, phone number and
 unit number in the source and in the examples below is invented — residents are
@@ -149,29 +140,24 @@ no mailbox.
 ```bash
 python app.py --demo --console     # verdicts only
 python app.py --stage --demo       # prepare everything, show the confirmation
-python app.py --history            # what has been recorded, no PII decrypted
+python app.py --history            # units, statuses, when they changed
 python app.py --pause              # stop the background watcher (persists)
 
-python app.py --db                 # where the local encrypted database is
-python test_rules.py               # 33 tests — decision logic
-python test_store.py               # 13 tests — encryption, staging, idempotence
+python app.py --db                 # where the local history log is
+python test_rules.py               # 52 tests — decision logic
+python test_history.py             # 18 tests — history log, staging, demo isolation
 ```
 
-**The database is not in this repository and never has been.** It lives at
-`~/Library/Application Support/MoveInTriage/residents.sqlite3`, outside the
+**The history log is not in this repository and never has been.** It lives at
+`~/Library/Application Support/MoveInTriage/history.sqlite3`, outside the
 project directory entirely, so no command run inside the repo can sweep it into
-a commit — `git log --all --diff-filter=A` shows no database file in any commit
-in the history. `.gitignore` blocks `*.sqlite3` and `*.key` as a second line of
-defence, and the file is created `0600`.
+a commit. `.gitignore` blocks `*.sqlite3` as a second line of defence, the file
+is created `0600`, and demo runs keep it in memory so they never touch the real
+one.
 
-`--db` is the link to it: path, size, permissions, and where the key is. It
-prints no resident data, because knowing where the database is and knowing
-what's in it are different permissions, and only the first belongs in a command
-you might run with someone looking over your shoulder.
-
-The key is in the macOS Keychain, not beside the data — an encrypted file whose
-key sits next to it is a locked door with the key in the lock. It is also not
-recoverable: lose the Keychain item and the contents are gone, by design.
+`--db` is the link to it: path, size, permissions and counts by status. If an
+encrypted database from an earlier version is still on disk, it says so; nothing
+reads that file any more, and it is left for you to remove.
 
 **Staging prepares; it does not commit.** `--stage` composes the draft in full,
 resolves recipients, builds the portal payloads, and stops at one confirmation
@@ -210,16 +196,14 @@ nothing is outstanding.
 | `staging.py` | Prepares every action in full; the single confirmation gate |
 | `watcher.py` | The background poll loop, notifications, persistent pause |
 | `mailsource.py` | One interface, three backends: Graph, connector, demo |
-| `store.py` | Database API. Django configured as a standalone ORM |
-| `residentdb/` | Models, migrations, and the encrypted field |
-| `keystore.py` | Encryption key in the macOS Keychain, never beside the data |
+| `history.py` | Local log of units, statuses and timestamps. Standard-library `sqlite3`, no PII |
 | `config.py` | Senders, trigger phrases, completion phrases — all site-specific values |
 | `models.py` | Display-path data structures, and why PII cannot enter them |
 | `graph_client.py` | Read-only Graph client. Exposes `GET` and nothing else |
 | `app.py` · `board.py` | CLI and HTML board |
 | `menubar.py` · `window.py` | macOS menu bar app and native window |
 | `sample_data.py` | Fictional sample mailbox for demo mode and tests |
-| `test_rules.py` · `test_store.py` | 46 offline tests |
+| `test_rules.py` · `test_history.py` | 70 offline tests |
 | `sheet.py` | Retired spreadsheet reader, kept as a marker |
 
 ---

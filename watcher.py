@@ -42,7 +42,7 @@ def is_paused() -> bool:
 
 
 def pause() -> None:
-    APP_SUPPORT.mkdir(parents=True, exist_ok=True)
+    PAUSE_FILE.parent.mkdir(parents=True, exist_ok=True)
     PAUSE_FILE.write_text(f"paused at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
 

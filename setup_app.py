@@ -26,6 +26,7 @@ INCLUDES = [
     "board",
     "config",
     "graph_client",
+    "history",
     "models",
     "rules",
     "sample_data",

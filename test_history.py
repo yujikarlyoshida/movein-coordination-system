@@ -253,9 +253,14 @@ def test_summaries_carry_no_resident_names():
 
 def test_pause_survives_as_a_file():
     # Pause is a file, not an in-memory flag, so it survives the watcher being
-    # restarted by the LaunchAgent.
-    was_paused = watcher.is_paused()
+    # restarted by the LaunchAgent. Pointed at a scratch path: the real pause
+    # file belongs to whatever watcher is running on this machine.
+    import pathlib
+
+    real = watcher.PAUSE_FILE
+    watcher.PAUSE_FILE = pathlib.Path(_TMP) / "pause-test" / "paused"
     try:
+        assert not watcher.is_paused()
         watcher.pause()
         assert watcher.is_paused()
         assert watcher.PAUSE_FILE.exists()
@@ -263,7 +268,7 @@ def test_pause_survives_as_a_file():
         watcher.resume()
         assert not watcher.is_paused()
     finally:
-        watcher.pause() if was_paused else watcher.resume()
+        watcher.PAUSE_FILE = real
 
 
 # ---------------------------------------------------------------------------
