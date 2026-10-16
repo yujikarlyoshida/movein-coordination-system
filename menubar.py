@@ -429,6 +429,11 @@ def main() -> None:
     parser.add_argument("--demo", action="store_true", help="use sample data, no sign-in")
     args = parser.parse_args()
 
+    if args.demo:
+        import store
+
+        store.use_throwaway_database()
+
     nsapp = NSApplication.sharedApplication()
 
     # Accessory: lives in the menu bar with no Dock icon and no app switcher

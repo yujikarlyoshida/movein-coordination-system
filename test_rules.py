@@ -16,7 +16,21 @@ update an expected value.
 
 from __future__ import annotations
 
-import config
+import os
+import tempfile
+
+from cryptography.fernet import Fernet
+
+# The demo staging tests below go through the store. Point it at a scratch file
+# and a throwaway key before anything imports it, as test_store.py does, so this
+# file run on its own can never reach the real database or the Keychain.
+os.environ.setdefault(
+    "MOVEIN_DB_PATH",
+    os.path.join(tempfile.mkdtemp(prefix="movein-test-"), "test.sqlite3"),
+)
+os.environ.setdefault("MOVEIN_DB_KEY", Fernet.generate_key().decode())
+
+import config  # noqa: E402
 
 # Pin the senders the fixture uses, BEFORE importing anything that reads them.
 #

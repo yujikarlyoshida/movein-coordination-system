@@ -314,6 +314,45 @@ def test_pause_survives_as_a_file():
         watcher.pause() if was_paused else watcher.resume()
 
 
+def test_demo_stage_never_touches_the_real_database_or_keychain():
+    # A fresh process, as a user would run it, with HOME moved to a scratch
+    # directory and a fake `security` first on PATH that records any call. If
+    # demo mode reached for the real database it would appear under HOME; if it
+    # asked the Keychain for the key, the fake would leave a log.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    home = Path(tempfile.mkdtemp(prefix="movein-home-"))
+    bin_dir = home / "bin"
+    bin_dir.mkdir()
+    log = home / "security-called"
+    fake = bin_dir / "security"
+    fake.write_text(f"#!/bin/sh\necho \"$@\" >> '{log}'\nexit 44\n")
+    fake.chmod(0o755)
+
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MOVEIN_")}
+    env["HOME"] = str(home)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+
+    repo = Path(__file__).resolve().parent
+    proc = subprocess.run(
+        [sys.executable, "app.py", "--stage", "--demo"],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "0735" in proc.stdout
+    assert not log.exists(), "demo mode asked the Keychain for a key"
+    assert not (home / "Library" / "Application Support" / "MoveInTriage").exists()
+
+
+def test_throwaway_database_refuses_the_real_one():
+    # In-process the store is already configured (this file's scratch path), so
+    # the call is accepted; it would raise if that were the real database.
+    store.use_throwaway_database()
+    assert os.environ["MOVEIN_DB_PATH"] != str(store.DB_PATH)
+
+
 # ---------------------------------------------------------------------------
 # runner
 # ---------------------------------------------------------------------------

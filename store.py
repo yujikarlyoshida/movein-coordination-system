@@ -76,6 +76,38 @@ def _configure() -> None:
     _configured = True
 
 
+def use_throwaway_database() -> None:
+    """
+    Demo runs only: an in-memory database under a one-off key.
+
+    The sample mailbox goes through the same staging path as real mail, which
+    records triggers. Without this, a demo run on an installed copy writes
+    synthetic residents into the real database and asks the Keychain for the
+    real key -- and if the Keychain read fails, keystore mints a fresh key and
+    leaves rows the real app can no longer decrypt.
+
+    Must run before the first database call. If something already configured
+    Django (a test suite pointing at a scratch file), that is accepted, as long
+    as it is not the real database and the key came from the environment rather
+    than the Keychain.
+    """
+    if _configured or settings.configured:
+        name = str(settings.DATABASES["default"]["NAME"])
+        if name == str(DB_PATH) or not os.environ.get("MOVEIN_DB_KEY"):
+            raise RuntimeError("demo mode must not use the real database or the Keychain key")
+        return
+
+    # Already pointed at a scratch file with its own key: keep it.
+    preset = os.environ.get("MOVEIN_DB_PATH")
+    if preset and preset != str(DB_PATH) and os.environ.get("MOVEIN_DB_KEY"):
+        return
+
+    from cryptography.fernet import Fernet
+
+    os.environ["MOVEIN_DB_PATH"] = ":memory:"
+    os.environ["MOVEIN_DB_KEY"] = Fernet.generate_key().decode()
+
+
 def migrate(verbose: bool = False) -> None:
     """
     Create or upgrade the schema. Called on startup; cheap when already current.

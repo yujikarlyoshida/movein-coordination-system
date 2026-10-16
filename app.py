@@ -134,7 +134,9 @@ def run_stage(args: argparse.Namespace) -> int:
 
     if args.demo:
         import sample_data
+        import store
 
+        store.use_throwaway_database()
         messages = sample_data.MESSAGES
         source_name = "demo"
     else:
@@ -258,6 +260,11 @@ def main() -> int:
     parser.add_argument("--db", action="store_true", help="where the local encrypted database is")
     parser.add_argument("--reveal", action="store_true", help="with --db, open it in Finder")
     args = parser.parse_args()
+
+    if args.demo:
+        import store
+
+        store.use_throwaway_database()
 
     import watcher
 
