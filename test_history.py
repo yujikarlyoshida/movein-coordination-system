@@ -22,6 +22,9 @@ import tempfile
 _TMP = tempfile.mkdtemp(prefix="movein-test-")
 os.environ["MOVEIN_HISTORY_PATH"] = os.path.join(_TMP, "history.sqlite3")
 
+# Never the real welcome template: a scratch location with nothing in it.
+os.environ.setdefault("MOVEIN_TEMPLATE_PATH", os.path.join(tempfile.mkdtemp(prefix="movein-test-"), "no-template.txt"))
+
 import config  # noqa: E402
 
 # Same reason as test_rules.py: pin the fixture's senders so an installed copy

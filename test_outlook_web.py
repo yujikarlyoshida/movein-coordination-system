@@ -27,6 +27,9 @@ os.environ.setdefault(
     os.path.join(tempfile.mkdtemp(prefix="movein-test-"), "history.sqlite3"),
 )
 
+# Never the real welcome template: a scratch location with nothing in it.
+os.environ.setdefault("MOVEIN_TEMPLATE_PATH", os.path.join(tempfile.mkdtemp(prefix="movein-test-"), "no-template.txt"))
+
 import config  # noqa: E402
 
 config.TRIGGER_SENDERS = [

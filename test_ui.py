@@ -13,6 +13,9 @@ import os
 import tempfile
 from datetime import datetime
 
+# Never the real welcome template: a scratch location with nothing in it.
+os.environ.setdefault("MOVEIN_TEMPLATE_PATH", os.path.join(tempfile.mkdtemp(prefix="movein-test-"), "no-template.txt"))
+
 os.environ["MOVEIN_SENDERS_PATH"] = os.path.join(tempfile.mkdtemp(prefix="movein-test-"), "senders.json")
 os.environ.setdefault(
     "MOVEIN_HISTORY_PATH",

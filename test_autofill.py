@@ -14,6 +14,9 @@ import os
 import tempfile
 from pathlib import Path
 
+# Never the real welcome template: a scratch location with nothing in it.
+os.environ.setdefault("MOVEIN_TEMPLATE_PATH", os.path.join(tempfile.mkdtemp(prefix="movein-test-"), "no-template.txt"))
+
 os.environ.setdefault(
     "MOVEIN_HISTORY_PATH",
     os.path.join(tempfile.mkdtemp(prefix="movein-test-"), "history.sqlite3"),

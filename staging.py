@@ -162,12 +162,29 @@ def compose_welcome(unit: str, residents: list) -> tuple[str, str, list[str], li
         property=getattr(config, "PROPERTY_NAME", "The Property"),
         unit=unit,
     )
-    body = WELCOME_BODY.format(
-        greeting=greeting,
-        signature=getattr(config, "SIGNATURE", "The Experience Team"),
-    )
+    # Your own template when you have saved one (welcome_template.py); the
+    # built-in text above is only a stand-in until then.
+    import welcome_template
+
+    if welcome_template.available():
+        _, body = welcome_template.render(first_names)
+    else:
+        body = WELCOME_BODY.format(
+            greeting=greeting,
+            signature=getattr(config, "SIGNATURE", "The Experience Team"),
+        )
 
     return subject, body, recipients, problems
+
+
+def welcome_html(residents: list) -> str:
+    """The formatted welcome body from your template, or "" with no template saved."""
+    import welcome_template
+
+    if not welcome_template.available():
+        return ""
+    names = [r.first_name for r in residents if getattr(r, "first_name", "")]
+    return welcome_template.render(names)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +222,8 @@ def stage_for_move_in(result, residents: list) -> StagedPlan:
             unit=result.unit,
             # Count, never names -- this string reaches the menu bar and the log.
             summary=f"Welcome email for {len(residents)} resident(s) in #{result.unit}",
-            payload={"subject": subject, "body": body, "to": recipients},
+            payload={"subject": subject, "body": body, "html": welcome_html(residents),
+                     "to": recipients, "cc": getattr(config, "WELCOME_CC", "")},
             blocked_on=draft_blocked,
         )
     )
