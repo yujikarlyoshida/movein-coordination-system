@@ -270,7 +270,7 @@ def test_sample_thread_end_to_end_reads_as_handled():
     (r,) = results
     assert r.unit == "0512"
     assert r.verdict is Verdict.HANDLED
-    assert [e.kind for e in r.evidence] == ["announcement"]
+    assert [e.kind for e in r.evidence] == ["thread_reply", "announcement"]
 
 
 # ---------------------------------------------------------------------------

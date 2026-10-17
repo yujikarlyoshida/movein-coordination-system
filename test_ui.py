@@ -170,8 +170,8 @@ def test_board_headline_counts_and_order():
     text = _text(page)
     assert "2 units need you" in text
     assert "Watching Move ins, last check 4:31 PM" in text
-    # Count cards: need outreach, handled, skipped, can't read.
-    for card in ("Need outreach 2", "Handled 2", "Skipped, corporate 1", "Can't read 0"):
+    # Count cards: need outreach, handled, skipped, check.
+    for card in ("Need outreach 2", "Handled 2", "Skipped, corporate 1", "Check 0"):
         assert card in text, card
     # Rows: what needs you first, handled last.
     units = re.findall(r'<td class="unit"><a [^>]*>(\d{4})</a>', page)

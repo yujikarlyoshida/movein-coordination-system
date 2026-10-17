@@ -117,7 +117,7 @@ tr:last-child td { border-bottom: 0 }
 
 _STATUS = {
     Verdict.NEEDS_OUTREACH: ("Needs outreach", "p-needs"),
-    Verdict.UNCLEAR: ("Can't read", "p-unclear"),
+    Verdict.UNCLEAR: ("Check", "p-unclear"),
     Verdict.SKIPPED_CORPORATE: ("Skipped, corporate", "p-skipped"),
     Verdict.HANDLED: ("Handled", "p-handled"),
 }
@@ -158,7 +158,7 @@ def _checks(result: Result) -> tuple[str, list[str]]:
     if result.verdict is Verdict.HANDLED:
         kinds = {e.kind for e in result.evidence}
         said = []
-        if "announcement" in kinds:
+        if kinds & {"thread_reply", "announcement"}:
             said.append("Teammate replied")
         if "welcome_sent" in kinds:
             said.append("Welcome email already sent")
@@ -235,11 +235,11 @@ def _row(result: Result, interactive: bool = False, done: bool = False) -> str:
 def _headline(needs: int, unclear: int) -> str:
     if needs and unclear:
         return (f'{needs} unit{"s" if needs != 1 else ""} <span class="mark">need you</span>, '
-                f"{unclear} can't be read")
+                f"{unclear} to check")
     if needs:
         return f'{needs} unit{"s" if needs != 1 else ""} <span class="mark">need{"s" if needs == 1 else ""} you</span>'
     if unclear:
-        return f'{unclear} lease{"s" if unclear != 1 else ""} <span class="mark">can\'t be read</span>'
+        return f'{unclear} lease{"s" if unclear != 1 else ""} <span class="mark">to check</span>'
     return 'Nothing <span class="mark">needs you</span> right now'
 
 
@@ -386,7 +386,7 @@ def render(results: list[Result], operator: str = "", status: str = "",
         ("Need outreach", len(needs), bool(needs)),
         ("Handled", len(handled), False),
         ("Skipped, corporate", len(skipped), False),
-        ("Can't read", len(unclear), bool(unclear)),
+        ("Check", len(unclear), bool(unclear)),
     ]
     cards_html = "".join(
         f'<div class="card{" hot" if hot else ""}"><div class="label">{_esc(label)}</div>'
@@ -394,7 +394,7 @@ def render(results: list[Result], operator: str = "", status: str = "",
         for label, n, hot in cards
     )
 
-    # Order: what needs you, then what can't be read, then skipped, then done.
+    # Order: what needs you, then what to check, then skipped, then done.
     order = needs + unclear + skipped + handled
     if order:
         table = (

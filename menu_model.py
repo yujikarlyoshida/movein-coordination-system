@@ -154,7 +154,7 @@ def menu_rows(snap: Snapshot) -> list:
         else:
             rows.append(("Nothing needs outreach", None, 0))
         if unclear:
-            rows.append((f"{len(unclear)} can't be read", OPEN_BOARD, 0))
+            rows.append((f"{len(unclear)} to check", OPEN_BOARD, 0))
             _units(rows, unclear)
         rows.append((f"{len(snap.handled)} handled by a teammate", None, 0))
         if snap.skipped:

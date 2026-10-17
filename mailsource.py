@@ -209,6 +209,7 @@ def owa_messages(raw: list[dict], days: int | None = None) -> list[dict]:
         key = f"{sender or sender_name}|{received}|{body[:200]}".encode()
         out.append({
             "id": f"owa:{m.get('conv_id', '')}:{hashlib.sha1(key).hexdigest()[:12]}",
+            "conv_id": m.get("conv_id", "") or "",
             "subject": m.get("subject", "") or "",
             "sender": sender,
             "sender_name": sender_name,

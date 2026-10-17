@@ -8,6 +8,7 @@ be fully tested offline, with no tenant and no mailbox. See test_rules.py.
     messages ──> triggers ──> for each unit: is there evidence it was handled?
                                     │
                                     ├── yes ──> HANDLED
+                                    ├── a question in the thread ──> UNCLEAR (check)
                                     ├── no  ──> NEEDS OUTREACH
                                     └── unreadable ──> UNCLEAR
 
@@ -232,6 +233,85 @@ def find_evidence(
     return found
 
 
+# Where a reply stops and the quoted email below it starts: Outlook's
+# "From: ... Sent: ..." header, an "Original Message" rule, a long underscore
+# line, or "On <date>, <name> wrote:".
+_QUOTE_START = re.compile(
+    r"(?:^|\s)(?:From:\s|-{3,}\s*Original|_{8,}|On [^\n]{0,120}? wrote:)", re.IGNORECASE
+)
+
+
+def thread_id(message: dict) -> str:
+    """The conversation a message belongs to: Outlook on the web's conv_id, or
+    Graph's conversationId. Blank when the source does not say."""
+    return normalise(message.get("conv_id") or message.get("conversationId"))
+
+
+def reply_text(body: str) -> str:
+    """The reply itself, without the quoted email below it."""
+    match = _QUOTE_START.search(body or "")
+    return (body or "")[: match.start()] if match else (body or "")
+
+
+def asks_question(body: str) -> bool:
+    """Does the reply (not the quoted email) ask something?"""
+    return "?" in reply_text(body)
+
+
+def judge_thread(
+    messages: list[dict],
+    trigger_id: str,
+    since: str | None,
+) -> tuple[list[Evidence], bool]:
+    """
+    What the lease email's own thread says: (evidence, asks_a_question).
+
+    The team's SOP is to reply-all on the lease email once the work is done, so
+    a reply in that thread from someone other than leasing is the main sign a
+    unit is handled -- whatever words it uses. A real teammate's reply was
+    missed because it matched none of the phrases is_announcement knows.
+
+    Counted: replies in the same conversation as the trigger, dated at or after
+    it (less the clock-skew allowance), from anyone who is not a lease sender.
+    Leasing's own follow-ups ("adding a roommate", "thanks!") are requests, not
+    completions, so they never count.
+
+    The NEWEST such reply decides. If it asks a question, the thread is still
+    open -- "what's the second roommate's phone?" is a reply between people too
+    -- so it returns no evidence and True, and the unit shows as Check rather
+    than going quiet. A question answered by a later reply is settled by that
+    later reply.
+    """
+    import triggers
+
+    trigger = next((m for m in messages if m.get("id") == trigger_id), None)
+    conversation = thread_id(trigger) if trigger else ""
+    if not conversation:
+        return [], False
+    cutoff = parse_received(since)
+    if cutoff is None:
+        return [], False
+    cutoff -= timedelta(minutes=config.EVIDENCE_CLOCK_SKEW_MINUTES)
+
+    replies = []
+    for m in messages:
+        if m.get("id") == trigger_id or thread_id(m) != conversation:
+            continue
+        if triggers.is_trigger_sender(m.get("sender", ""), m.get("sender_name", "")):
+            continue
+        when = parse_received(m.get("received"))
+        if when is None or when < cutoff:
+            continue
+        replies.append((when, m))
+    if not replies:
+        return [], False
+
+    _, newest = max(replies, key=lambda pair: pair[0])
+    if asks_question(newest.get("body", "") or ""):
+        return [], True
+    return [Evidence("thread_reply", newest.get("subject", "") or "", newest.get("received", "") or "")], False
+
+
 # ---------------------------------------------------------------------------
 # The pipeline
 # ---------------------------------------------------------------------------
@@ -269,6 +349,7 @@ def evaluate(messages: list[dict]) -> list[Result]:
         # corrected resend that is the resend, so a colleague's note about the
         # original does not clear the new version.
         evidence = find_evidence(unit, messages, trigger_id=trigger_id, since=trigger_received)
+        replied, question = judge_thread(messages, trigger_id, trigger_received)
 
         corporate = list(getattr(trigger, "corporate", []))
         if corporate:
@@ -281,8 +362,15 @@ def evaluate(messages: list[dict]) -> list[Result]:
             # evidence, so neither HANDLED nor a confident NEEDS OUTREACH holds.
             verdict = Verdict.UNCLEAR
             problems.append("trigger date unreadable; earlier mail could not be ruled out as evidence")
-        elif evidence:
+        elif question:
+            # The newest reply in the lease thread asks something. Even with a
+            # "done" message elsewhere, an open question means a person looks.
+            verdict = Verdict.UNCLEAR
+            evidence = []
+            problems.insert(0, "a teammate asked a question in the thread; read it before acting")
+        elif evidence or replied:
             verdict = Verdict.HANDLED
+            evidence = replied + evidence
         elif not getattr(trigger, "residents", None):
             # A qualifying message whose contents could not be read. Do not
             # silently drop it: an unparseable trigger is the one most likely to

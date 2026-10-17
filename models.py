@@ -31,13 +31,15 @@ class Verdict(str, Enum):
     NEEDS_OUTREACH = "needs_outreach"
 
     # Triggered, and there is positive evidence a colleague already handled it --
-    # an "added to all platforms" message, or a welcome email already sent for
+    # a reply in the lease email's thread from someone outside leasing, an
+    # "added to all platforms" message, or a welcome email already sent for
     # that unit.
     HANDLED = "handled"
 
-    # Triggered, but the message could not be read well enough to be sure what it
-    # is asking for. Surfaced rather than dropped, because a trigger nobody can
-    # parse is exactly the one most likely to be missed.
+    # Triggered, but a person needs to look: the message could not be read well
+    # enough to be sure what it is asking for, or the newest reply in its thread
+    # asks a question. Surfaced rather than dropped, because a trigger nobody
+    # can settle is exactly the one most likely to be missed. Shown as "Check".
     UNCLEAR = "unclear"
 
     # Triggered, but the lease belongs to a company (corporate housing,
@@ -51,13 +53,15 @@ class Verdict(str, Enum):
 class Evidence:
     """One reason a unit was judged already handled."""
 
-    kind: str        # "announcement" | "welcome_sent"
+    kind: str        # "thread_reply" | "announcement" | "welcome_sent"
     subject: str
     received: str
 
     def describe(self) -> str:
         if self.kind == "welcome_sent":
             return f"welcome email already sent — {self.subject}"
+        if self.kind == "thread_reply":
+            return f"teammate replied in the thread — {self.subject}"
         return f"colleague reported it done — {self.subject}"
 
 

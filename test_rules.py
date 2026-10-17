@@ -495,6 +495,95 @@ def test_updated_resend_is_judged_on_mail_after_the_resend():
     assert r.verdict is Verdict.HANDLED
 
 
+# ---------------------------------------------------------------------------
+# a reply in the lease email's thread
+# ---------------------------------------------------------------------------
+
+def _thread_lease(received=_TRIGGER_AT):
+    return _lease_0640(received=received) | {"conv_id": "CONV-0640"}
+
+
+def _reply(body, received="2026-10-01T12:30:00Z", sender="team.mate@example.com", msg_id="r", conv="CONV-0640"):
+    return {"id": msg_id, "conv_id": conv, "sender": sender, "sender_name": "",
+            "subject": "RE: New Resident Move In - 0640", "received": received, "body": body}
+
+
+def test_any_reply_from_a_teammate_in_the_thread_marks_handled():
+    # SOP is to reply-all once the work is done, in whatever words. This reply
+    # matches none of the announcement phrases -- the real miss this fixes.
+    (r,) = rules.evaluate([_thread_lease(), _reply("All taken care of, thanks!")])
+    assert r.verdict is Verdict.HANDLED
+    assert [e.kind for e in r.evidence] == ["thread_reply"]
+
+
+def test_a_question_in_the_thread_shows_check_not_handled():
+    # A reply between people that asks something is not a completion. Going
+    # quiet on it would be a false HANDLED, the dangerous direction.
+    (r,) = rules.evaluate([_thread_lease(), _reply("What's the second roommate's phone number?")])
+    assert r.verdict is Verdict.UNCLEAR
+    assert r.evidence == []
+    assert "question in the thread" in r.problems[0]
+
+
+def test_the_newest_reply_decides():
+    asked = _reply("Is the move-in date right?", received="2026-10-01T12:10:00Z", msg_id="r1")
+    done = _reply("Done", received="2026-10-01T13:00:00Z", msg_id="r2")
+    (r,) = rules.evaluate([_thread_lease(), asked, done])
+    assert r.verdict is Verdict.HANDLED
+    reopened = _reply("Did the welcome email go out?", received="2026-10-01T14:00:00Z", msg_id="r3")
+    (r,) = rules.evaluate([_thread_lease(), asked, done, reopened])
+    assert r.verdict is Verdict.UNCLEAR
+
+
+def test_an_open_question_outranks_a_done_message_elsewhere():
+    msgs = [_thread_lease(), _announcement("2026-10-01T12:20:00Z"), _reply("Who is the second resident?")]
+    (r,) = rules.evaluate(msgs)
+    assert r.verdict is Verdict.UNCLEAR
+
+
+def test_a_question_mark_in_the_quoted_email_is_ignored():
+    body = ("Complete\n\nFrom: Leasing Manager\nSent: Thursday, October 1, 2026 8:00 AM\n"
+            "Subject: New Resident Move In - 0640\nAny questions?")
+    (r,) = rules.evaluate([_thread_lease(), _reply(body)])
+    assert r.verdict is Verdict.HANDLED
+    assert rules.reply_text("Thanks -----Original Message----- why?") == "Thanks"
+    assert rules.asks_question("Sure, see below. On Thu, Oct 1, 2026, Someone wrote: why?") is False
+
+
+def test_leasing_replying_in_its_own_thread_does_not_count():
+    # A lease sender's follow-up is a request ("adding a roommate"), not a
+    # completion -- whether from the original sender or another leasing address.
+    for sender in ("leasing.manager@example.com", "leasing.specialist@example.com"):
+        (r,) = rules.evaluate([_thread_lease(), _reply("Thanks!", sender=sender)])
+        assert r.verdict is Verdict.NEEDS_OUTREACH
+
+
+def test_a_reply_in_another_thread_or_before_the_lease_does_not_count():
+    (r,) = rules.evaluate([_thread_lease(), _reply("Sounds good", conv="CONV-OTHER")])
+    assert r.verdict is Verdict.NEEDS_OUTREACH
+    (r,) = rules.evaluate([_thread_lease(), _reply("Sounds good", received="2026-10-01T09:00:00Z")])
+    assert r.verdict is Verdict.NEEDS_OUTREACH
+    (r,) = rules.evaluate([_thread_lease(), _reply("Sounds good", received="")])
+    assert r.verdict is Verdict.NEEDS_OUTREACH
+
+
+def test_without_a_thread_id_only_the_wording_checks_apply():
+    # Sources that do not say which thread a message is in fall back to the
+    # announcement and welcome checks, unchanged.
+    reply = _reply("All taken care of") | {"conv_id": ""}
+    (r,) = rules.evaluate([_lease_0640(), reply])
+    assert r.verdict is Verdict.NEEDS_OUTREACH
+
+
+def test_outlook_messages_carry_their_thread_id():
+    import mailsource
+
+    (m,) = mailsource.owa_messages([{"conv_id": "CONV9", "sender": "a@example.com", "sender_name": "",
+                                     "received_text": "10/14/2026 9:00 AM", "subject": "s", "body": "b"}])
+    assert m["conv_id"] == "CONV9" and rules.thread_id(m) == "CONV9"
+    assert rules.thread_id({"conversationId": "G1"}) == "G1"
+
+
 def test_unreadable_trigger_date_is_unclear_not_handled():
     msgs = [_announcement("2026-10-01T12:30:00Z"), _lease_0640(received="")]
     (r,) = rules.evaluate(msgs)
