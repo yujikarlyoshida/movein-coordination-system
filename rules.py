@@ -8,7 +8,7 @@ be fully tested offline, with no tenant and no mailbox. See test_rules.py.
     messages ──> triggers ──> for each unit: is there evidence it was handled?
                                     │
                                     ├── yes ──> HANDLED
-                                    ├── a question in the thread ──> UNCLEAR (check)
+                                    ├── a question or "not yet" in the thread ──> UNCLEAR (check)
                                     ├── no  ──> NEEDS OUTREACH
                                     └── unreadable ──> UNCLEAR
 
@@ -258,13 +258,21 @@ def asks_question(body: str) -> bool:
     return "?" in reply_text(body)
 
 
+def says_not_done(body: str) -> bool:
+    """Does the reply (not the quoted email) say the work is still to come?
+    See config.NOT_DONE_PHRASES."""
+    text = " ".join(reply_text(body).lower().split())
+    return any(re.search(rf"\b{re.escape(phrase)}\b", text)
+               for phrase in getattr(config, "NOT_DONE_PHRASES", []))
+
+
 def judge_thread(
     messages: list[dict],
     trigger_id: str,
     since: str | None,
-) -> tuple[list[Evidence], bool]:
+) -> tuple[list[Evidence], str]:
     """
-    What the lease email's own thread says: (evidence, asks_a_question).
+    What the lease email's own thread says: (evidence, why_it_needs_a_look).
 
     The team's SOP is to reply-all on the lease email once the work is done, so
     a reply in that thread from someone other than leasing is the main sign a
@@ -276,21 +284,21 @@ def judge_thread(
     Leasing's own follow-ups ("adding a roommate", "thanks!") are requests, not
     completions, so they never count.
 
-    The NEWEST such reply decides. If it asks a question, the thread is still
-    open -- "what's the second roommate's phone?" is a reply between people too
-    -- so it returns no evidence and True, and the unit shows as Check rather
-    than going quiet. A question answered by a later reply is settled by that
-    later reply.
+    The NEWEST such reply decides. If it asks a question, or says the work is
+    still to come ("on it, will finish tomorrow"), the thread is still open --
+    those are replies between people too -- so it returns no evidence and the
+    reason, and the unit shows as Check rather than going quiet. Either is
+    settled by a later reply that does neither.
     """
     import triggers
 
     trigger = next((m for m in messages if m.get("id") == trigger_id), None)
     conversation = thread_id(trigger) if trigger else ""
     if not conversation:
-        return [], False
+        return [], ""
     cutoff = parse_received(since)
     if cutoff is None:
-        return [], False
+        return [], ""
     cutoff -= timedelta(minutes=config.EVIDENCE_CLOCK_SKEW_MINUTES)
 
     replies = []
@@ -304,12 +312,15 @@ def judge_thread(
             continue
         replies.append((when, m))
     if not replies:
-        return [], False
+        return [], ""
 
     _, newest = max(replies, key=lambda pair: pair[0])
-    if asks_question(newest.get("body", "") or ""):
-        return [], True
-    return [Evidence("thread_reply", newest.get("subject", "") or "", newest.get("received", "") or "")], False
+    body = newest.get("body", "") or ""
+    if asks_question(body):
+        return [], "a teammate asked a question in the thread; read it before acting"
+    if says_not_done(body):
+        return [], "a teammate's reply says it isn't done yet; read it before acting"
+    return [Evidence("thread_reply", newest.get("subject", "") or "", newest.get("received", "") or "")], ""
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +360,7 @@ def evaluate(messages: list[dict]) -> list[Result]:
         # corrected resend that is the resend, so a colleague's note about the
         # original does not clear the new version.
         evidence = find_evidence(unit, messages, trigger_id=trigger_id, since=trigger_received)
-        replied, question = judge_thread(messages, trigger_id, trigger_received)
+        replied, open_thread = judge_thread(messages, trigger_id, trigger_received)
 
         corporate = list(getattr(trigger, "corporate", []))
         if corporate:
@@ -362,12 +373,13 @@ def evaluate(messages: list[dict]) -> list[Result]:
             # evidence, so neither HANDLED nor a confident NEEDS OUTREACH holds.
             verdict = Verdict.UNCLEAR
             problems.append("trigger date unreadable; earlier mail could not be ruled out as evidence")
-        elif question:
-            # The newest reply in the lease thread asks something. Even with a
-            # "done" message elsewhere, an open question means a person looks.
+        elif open_thread:
+            # The newest reply in the lease thread asks something or says the
+            # work is still to come. Even with a "done" message elsewhere, an
+            # open thread means a person looks.
             verdict = Verdict.UNCLEAR
             evidence = []
-            problems.insert(0, "a teammate asked a question in the thread; read it before acting")
+            problems.insert(0, open_thread)
         elif evidence or replied:
             verdict = Verdict.HANDLED
             evidence = replied + evidence

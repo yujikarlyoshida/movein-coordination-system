@@ -535,6 +535,31 @@ def test_the_newest_reply_decides():
     assert r.verdict is Verdict.UNCLEAR
 
 
+def test_a_reply_saying_it_is_not_done_yet_shows_check():
+    # Found by the scenario battery: "On it, will finish tomorrow" is a reply
+    # between people, but nothing is done. Counting it would be a false HANDLED.
+    for body in ("On it, will finish tomorrow.", "Will do", "Working on it now",
+                 "Waiting on the COI", "Not yet, adding them later", "In progress"):
+        (r,) = rules.evaluate([_thread_lease(), _reply(body)])
+        assert r.verdict is Verdict.UNCLEAR, body
+        assert "isn't done yet" in r.problems[0], body
+
+
+def test_not_done_words_only_count_as_whole_words_in_the_reply():
+    # "Done" with "tomorrow" only in the quoted email is still done; so is a
+    # word that merely contains a phrase ("latest" is not "later").
+    body = "Done, used the latest details.\n\nFrom: Leasing Lead\nSent: Tuesday\nStarts tomorrow"
+    (r,) = rules.evaluate([_thread_lease(), _reply(body)])
+    assert r.verdict is Verdict.HANDLED
+
+
+def test_a_not_done_reply_is_settled_by_a_later_done():
+    later = _reply("On it", received="2026-10-01T12:10:00Z", msg_id="r1")
+    done = _reply("All set", received="2026-10-01T15:00:00Z", msg_id="r2")
+    (r,) = rules.evaluate([_thread_lease(), later, done])
+    assert r.verdict is Verdict.HANDLED
+
+
 def test_an_open_question_outranks_a_done_message_elsewhere():
     msgs = [_thread_lease(), _announcement("2026-10-01T12:20:00Z"), _reply("Who is the second resident?")]
     (r,) = rules.evaluate(msgs)

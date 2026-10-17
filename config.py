@@ -139,6 +139,22 @@ TERSE_COMPLETIONS = {
     "all done",
 }
 
+# A reply in the lease thread counts as handled (rules.judge_thread) -- unless
+# it says the work is still to come. "On it, will finish tomorrow" is a reply
+# between people, but nothing is done yet, so the unit shows as Check.
+# Matched as whole words in the reply only, never in the quoted email below it.
+NOT_DONE_PHRASES = [
+    "on it",
+    "will do",
+    "working on",
+    "tomorrow",
+    "later",
+    "waiting on",
+    "waiting for",
+    "not yet",
+    "in progress",
+]
+
 # 2. A welcome email already sent for that unit. Matched on the unit number
 #    appearing in the subject of something you sent.
 #
