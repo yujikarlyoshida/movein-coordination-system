@@ -85,8 +85,14 @@ def _make_ui_delegate():
     return UIDelegate.alloc().init()
 
 
-def open_window(url: str = OUTLOOK_URL):
-    """Open (or re-focus) the sign-in window. Returns the WKWebView."""
+def open_window(url: str = OUTLOOK_URL, show: bool = True):
+    """
+    Open (or re-focus) the Outlook window. Returns the WKWebView.
+
+    With show=False the window is created and Outlook loads, but nothing comes
+    to the front: the menu bar app starts this way and only shows the window
+    when a sign-in is needed, or when asked from the menu.
+    """
     global _window, _webview
 
     from AppKit import (
@@ -105,8 +111,9 @@ def open_window(url: str = OUTLOOK_URL):
     from WebKit import WKWebsiteDataStore, WKWebView, WKWebViewConfiguration
 
     if _window is not None:
-        _window.makeKeyAndOrderFront_(None)
-        NSApp.activateIgnoringOtherApps_(True)
+        if show:
+            _window.makeKeyAndOrderFront_(None)
+            NSApp.activateIgnoringOtherApps_(True)
         return _webview
 
     config = WKWebViewConfiguration.alloc().init()
@@ -132,12 +139,14 @@ def open_window(url: str = OUTLOOK_URL):
     window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
         frame, style, NSBackingStoreBuffered, False
     )
-    window.setTitle_("Sign in to Outlook")
+    window.setTitle_("Outlook for Move-in triage")
+    # Closing only hides it: the session and the reader keep running.
     window.setReleasedWhenClosed_(False)
     window.setContentView_(webview)
     window.center()
-    window.makeKeyAndOrderFront_(None)
-    NSApp.activateIgnoringOtherApps_(True)
+    if show:
+        window.makeKeyAndOrderFront_(None)
+        NSApp.activateIgnoringOtherApps_(True)
 
     webview.loadRequest_(NSURLRequest.requestWithURL_(NSURL.URLWithString_(url)))
 
@@ -412,7 +421,7 @@ class OutlookWebReader:
         seen: set[str] = set()
         self.last_opened = self.backlog = self.skipped = 0
         self.stopped_by = "scroll limit"
-        done = False
+        done = at_end = False
         for _ in range(self.max_scrolls):
             for row in self._js(_ROWS_JS):
                 conv = row["convId"]
@@ -447,9 +456,14 @@ class OutlookWebReader:
                     break
             if done:
                 break
-            if not self._js(_SCROLL_DOWN_JS)["moved"]:
+            if at_end:
+                # The rows were read once more after the list stopped moving.
                 self.stopped_by = "end of list"
                 break
+            if not self._js(_SCROLL_DOWN_JS)["moved"]:
+                # At the bottom. Rows can render a moment after the last scroll,
+                # so read once more before stopping rather than miss the last one.
+                at_end = True
             pause(0.6)  # let the newly visible rows render
 
         # A full sweep shows which threads are still in the folder; forget the

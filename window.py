@@ -24,6 +24,16 @@ import os
 _window = None
 _delegate = None
 
+# The board's buttons ("Run check", add or remove a sender) post messages to the
+# app through WebKit. `_on_action(action, value)` receives them; set by
+# show_board. The handler object is created once: an Objective-C class can only
+# be defined once per process.
+_on_action = None
+_handler = None
+
+# The only things a board page may ask for.
+BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing"}
+
 
 def _make_delegate():
     """
@@ -43,7 +53,40 @@ def _make_delegate():
     return WindowDelegate.alloc().init()
 
 
-def show_board(html_path: str, title: str = "Move-In Triage") -> None:
+def _message_handler():
+    """The WKScriptMessageHandler behind window.webkit.messageHandlers.triage."""
+    global _handler
+    if _handler is not None:
+        return _handler
+
+    import objc
+    from AppKit import NSObject
+
+    class BoardMessages(NSObject, protocols=[objc.protocolNamed("WKScriptMessageHandler")]):
+        def userContentController_didReceiveScriptMessage_(self, controller, message):
+            # Only the board itself, a local file, may ask for anything.
+            try:
+                url = message.frameInfo().request().URL()
+                if url is None or (url.scheme() or "").lower() != "file":
+                    return
+                body = message.body()
+                action = str(body.get("action", "") or "")
+                value = str(body.get("value", "") or "")[:200]
+            except Exception:
+                return
+            if action in BOARD_ACTIONS and _on_action is not None:
+                try:
+                    _on_action(action, value)
+                except Exception:
+                    import traceback
+
+                    traceback.print_exc()
+
+    _handler = BoardMessages.alloc().init()
+    return _handler
+
+
+def show_board(html_path: str, title: str = "Move-in triage", on_action=None) -> None:
     """
     Open (or re-focus) a native window displaying the board.
 
@@ -52,7 +95,9 @@ def show_board(html_path: str, title: str = "Move-In Triage") -> None:
     loadFileURL:allowingReadAccessToURL:, which grants read access to the
     containing directory only.
     """
-    global _window, _delegate
+    global _window, _delegate, _on_action
+    if on_action is not None:
+        _on_action = on_action
 
     from AppKit import (
         NSApp,
@@ -101,6 +146,7 @@ def show_board(html_path: str, title: str = "Move-In Triage") -> None:
     window.setFrameAutosaveName_("MoveInTriageBoard")
 
     config = WKWebViewConfiguration.alloc().init()
+    config.userContentController().addScriptMessageHandler_name_(_message_handler(), "triage")
     webview = WKWebView.alloc().initWithFrame_configuration_(frame, config)
     # Grow with the window rather than staying a fixed 760x860 island in it.
     webview.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)

@@ -39,6 +39,9 @@ class TriggerResident:
     unit: str
     lease_start: str = ""
     phone: str = ""
+    # True when the name has more than two words and the split into first and
+    # last is a guess ("Mary Jo Bravo"). Never auto-entered; the user confirms.
+    name_check: bool = False
 
     @property
     def full_name(self) -> str:
@@ -246,6 +249,127 @@ _LABEL_ALIASES = {
 ESSENTIAL_FIELDS = ("name", "unit", "phone", "email")
 
 
+# What each prepared step needs from a resident. The welcome email needs an
+# address to go to; Xfinity's Add Resident wizard will not save without a phone;
+# RiseIO takes the phone as optional.
+STEP_REQUIREMENTS = (
+    ("Welcome email", ("email", "name check")),
+    ("Xfinity", ("first name", "last name", "email", "phone", "move-in date", "name check")),
+    ("RiseIO", ("first name", "last name", "email", "name check")),
+)
+
+# How each gap reads on the board, the pop-up and notifications.
+_GAP_WORDS = {
+    "first name": "no first name",
+    "last name": "no last name",
+    "email": "no usable email",
+    "phone": "no usable phone",
+    "move-in date": "no move-in date",
+    "name check": "confirm how the name splits",
+}
+
+
+def gap_phrase(fields: list[str]) -> str:
+    """["phone", "name check"] -> "no usable phone, confirm how the name splits"."""
+    return ", ".join(_GAP_WORDS.get(f, f"no {f}") for f in fields)
+
+
+# ---------------------------------------------------------------------------
+# Cleaning values before anything is typed anywhere
+# ---------------------------------------------------------------------------
+#
+# Each returns the clean value, or "" when the input cannot be trusted. An empty
+# result is reported as a gap, so the user supplies it; nothing is guessed.
+
+_EMAIL = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
+
+
+def clean_email(value: str) -> str:
+    """'<mailto:Resident.Echo@Test.Invalid>.' -> 'resident.echo@test.invalid'."""
+    text = (value or "").strip()
+    text = re.sub(r"(?i)^<?\s*mailto:", "", text)
+    # Brackets, quotes and trailing punctuation in any order: "<...>." and ".>"
+    # alike.
+    text = text.strip(" <>[]()\"'.,;:").lower()
+    return text if _EMAIL.match(text) else ""
+
+
+def clean_phone(value: str) -> str:
+    """Any ten-digit US number, with or without +1, as 555-010-0145; else ""."""
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) != 10:
+        return ""
+    return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+
+
+def clean_date(value: str) -> str:
+    """'9/28/26', 'September 29, 2026', '2026-09-30' -> 'MM/DD/YYYY'; else ""."""
+    from datetime import datetime
+
+    text = " ".join((value or "").replace(",", " ").split())
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%B %d %Y", "%b %d %Y", "%Y-%m-%d", "%m-%d-%Y"):
+        try:
+            return datetime.strptime(text, fmt).strftime("%m/%d/%Y")
+        except ValueError:
+            continue
+    return ""
+
+
+# Lower-case words that begin a family name rather than end a first name.
+_SURNAME_PARTICLES = {
+    "de", "del", "della", "der", "den", "la", "le", "van", "von", "da", "di", "du",
+    "dos", "das", "st", "st.", "bin", "ibn", "al", "el", "y",
+}
+
+
+def name_needs_check(full: str) -> bool:
+    """
+    True when splitting this name into first and last would be a guess.
+
+    Two words split cleanly. More than two split cleanly only when the second
+    word starts a family name ("Resident De La Cruz"); otherwise it could be a
+    double first name ("Mary Jo Bravo") or a middle name, and that is the
+    user's call, not the parser's.
+    """
+    parts = full.split()
+    return len(parts) > 2 and parts[1].lower() not in _SURNAME_PARTICLES
+
+_EMPTY_PHONE = {"", "n/a", "na", "none", "-", "--"}
+
+
+def missing_fields(resident: TriggerResident) -> list[str]:
+    """
+    Which of the four essentials this resident lacks, as field NAMES only.
+
+    A phone given as "N/A" counts as missing: Xfinity cannot use it either.
+    """
+    missing = []
+    if not (resident.first_name or "").strip():
+        missing.append("first name")
+    if not (resident.last_name or "").strip():
+        missing.append("last name")
+    if not (resident.email or "").strip():
+        missing.append("email")
+    if (resident.phone or "").strip().lower() in _EMPTY_PHONE:
+        missing.append("phone")
+    if not (resident.lease_start or "").strip():
+        missing.append("move-in date")
+    if getattr(resident, "name_check", False):
+        missing.append("name check")
+    return missing
+
+
+def blocked_steps(fields: list[str]) -> list[str]:
+    """The prepared steps that cannot be completed without these fields."""
+    return [step for step, needs in STEP_REQUIREMENTS if set(needs) & set(fields)]
+
+
+def ordinal(n: int) -> str:
+    return _ordinal(n)
+
+
 def _ordinal(n: int) -> str:
     """1 -> '1st'. Used to refer to a resident by position instead of by name."""
     if 11 <= (n % 100) <= 13:
@@ -363,13 +487,33 @@ def parse_residents(body: str, fallback_unit: str = "") -> tuple[list[TriggerRes
         # Email and phone are essentials, so a missing one is reported. Email is
         # also required by the resident-app form, which means a resident without
         # one cannot be added there at all -- that is a blocker, not a note.
-        email = b.get("email", "").strip()
-        if not email:
+        #
+        # Values are cleaned before anything could be typed anywhere. One that
+        # cannot be cleaned is dropped and reported, never passed on as-is: a
+        # "<mailto:...>." address or a seven-digit phone would go into a form
+        # looking plausible and be wrong.
+        raw_email = b.get("email", "").strip()
+        email = clean_email(raw_email)
+        if not raw_email:
             problems.append(f"{who}: no email address given")
+        elif not email:
+            problems.append(f"{who}: email address couldn't be read")
 
-        phone = b.get("phone", "").strip()
-        if not phone:
+        raw_phone = b.get("phone", "").strip()
+        phone = clean_phone(raw_phone)
+        if not raw_phone:
             problems.append(f"{who}: no phone number given")
+        elif not phone and raw_phone.lower() not in _EMPTY_PHONE:
+            problems.append(f"{who}: phone number couldn't be read")
+
+        raw_start = b.get("lease_start", "").strip()
+        lease_start = clean_date(raw_start)
+        if raw_start and not lease_start:
+            problems.append(f"{who}: lease start date couldn't be read")
+
+        check = name_needs_check(name)
+        if check:
+            problems.append(f"{who}: name has more than two words; confirm the first and last name")
 
         residents.append(
             TriggerResident(
@@ -377,8 +521,9 @@ def parse_residents(body: str, fallback_unit: str = "") -> tuple[list[TriggerRes
                 last_name=last,
                 email=email,
                 unit=unit,
-                lease_start=b.get("lease_start", "").strip(),
-                phone=b.get("phone", "").strip(),
+                lease_start=lease_start,
+                phone=phone,
+                name_check=check,
             )
         )
 

@@ -141,10 +141,12 @@ def compose_welcome(unit: str, residents: list) -> tuple[str, str, list[str], li
     first_names = [r.first_name for r in residents if getattr(r, "first_name", "")]
     recipients = [r.email for r in residents if getattr(r, "email", "")]
 
-    for r in residents:
+    # By position, never by name: these notes reach the confirmation screen and
+    # the log, and the privacy rule holds there too.
+    for position, r in enumerate(residents, start=1):
         if not getattr(r, "email", ""):
-            name = getattr(r, "first_name", "") or "a resident"
-            problems.append(f"{name} has no email address in the trigger email")
+            who = "the resident" if len(residents) == 1 else f"the {triggers.ordinal(position)} resident"
+            problems.append(f"{who} has no usable email address, so the draft can't go to them")
 
     if len(first_names) == 0:
         greeting = "there"
@@ -155,9 +157,10 @@ def compose_welcome(unit: str, residents: list) -> tuple[str, str, list[str], li
     else:
         greeting = ", ".join(first_names[:-1]) + f" and {first_names[-1]}"
 
+    # Four digits, like every other unit reference ("#0735", not "#735").
     subject = WELCOME_SUBJECT.format(
         property=getattr(config, "PROPERTY_NAME", "The Property"),
-        unit=unit.lstrip("0") or unit,
+        unit=unit,
     )
     body = WELCOME_BODY.format(
         greeting=greeting,
@@ -215,6 +218,8 @@ def stage_for_move_in(result, residents: list) -> StagedPlan:
             kind="internet_portal",
             unit=result.unit,
             summary=f"Internet portal entry for #{result.unit}",
+            # Everything the Add Resident wizard asks for, in its order:
+            # contact details (all four required), unit, move-in date.
             payload={
                 "unit": result.unit,
                 "residents": [
@@ -222,6 +227,8 @@ def stage_for_move_in(result, residents: list) -> StagedPlan:
                         "first_name": r.first_name,
                         "last_name": r.last_name,
                         "email": r.email,
+                        "phone": r.phone,
+                        "move_in": r.lease_start,
                     }
                     for r in residents
                 ],
@@ -237,13 +244,14 @@ def stage_for_move_in(result, residents: list) -> StagedPlan:
     #   required   first name, last name, email
     #   optional   phone, birthday (three dropdowns), permission-to-enter,
     #              profile picture, free-form bio rows, tags, notes, membership
-    #   ABSENT     apartment/unit -- there is no unit field on this form at all
+    #   then       a "Move into Unit" dialog: unit, optional move-in date,
+    #              confirmed with "Confirm Move-In"
     #
-    # The missing unit field is the important one. Every other system in this
-    # workflow is keyed by unit; this one is not, so a resident added here is not
-    # attached to a home by the act of adding them. Whatever links the two
-    # happens elsewhere, and until that is known this action cannot be called
-    # complete no matter how carefully the payload is built.
+    # The add form itself has no unit field; the Move into Unit dialog that
+    # follows is what attaches the resident to a home, so it is part of the
+    # payload. Account activation is ticked by default on the live form and
+    # emails the resident: that is a send, so it is off here and only the user
+    # can turn it on.
     #
     # Pets and vehicles are separate records (/app/pet, /app/vehicle), not
     # fields here -- which is why the unhandled-field reports in triggers.py are
@@ -272,10 +280,15 @@ def stage_for_move_in(result, residents: list) -> StagedPlan:
                     }
                     for r in residents
                 ],
+                "move_into_unit": {
+                    "unit": result.unit,
+                    "move_in": next((r.lease_start for r in residents if r.lease_start), ""),
+                },
+                # Off unless the user chooses it: activation emails the resident.
+                "send_activation_email": False,
             },
             blocked_on=[
                 "Resident app sign-in (no API; the session must be open already)",
-                f"Resident app has no unit field — link #{result.unit} by hand after adding",
             ],
         )
     )

@@ -44,6 +44,7 @@ def normalise_unit(value: object) -> str:
         "#735"   -> "0735"
         "735"    -> "0735"
         " 0612 " -> "0612"
+        "Apt 742", "Unit #742", "Apartment 742", "Ste. 742" -> "0742"
 
     Every system writes unit numbers differently. Without one canonical form,
     "735" and "0735" read as two different apartments and the duplicate check
@@ -54,7 +55,12 @@ def normalise_unit(value: object) -> str:
     but otherwise untouched, so odd values stay visible rather than being mangled
     into a wrong-but-plausible unit.
     """
-    text = normalise(value).lstrip("#").strip()
+    import re
+
+    text = normalise(value)
+    # A leading word for "unit" carries no information: "Apt 742" is 742.
+    text = re.sub(r"(?i)^(?:apt\.?|apartment|unit|suite|ste\.?|no\.?|number)\s*", "", text)
+    text = text.lstrip("#").strip()
     if not text:
         return ""
     if not text.isdigit():
@@ -299,6 +305,14 @@ def evaluate(messages: list[dict]) -> list[Result]:
                 trigger_id=getattr(trigger, "message_id", ""),
                 evidence=evidence,
                 problems=problems,
+                move_in=next((r.lease_start for r in getattr(trigger, "residents", [])
+                              if r.unit == unit and r.lease_start), ""),
+                # Only for units someone will act on: a handled or skipped unit's
+                # gaps are nobody's to chase.
+                missing=[(i + 1, triggers.missing_fields(r))
+                         for i, r in enumerate(getattr(trigger, "residents", []))
+                         if r.unit == unit and triggers.missing_fields(r)]
+                if verdict is Verdict.NEEDS_OUTREACH else [],
             )
         )
 

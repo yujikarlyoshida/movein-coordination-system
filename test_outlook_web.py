@@ -140,7 +140,7 @@ SAMPLE_PAGE = """<!doctype html><html><head>
 This resident's lease has been generated.
 
 Name: Resident Kilo
-Phone: 555-0161
+Phone: 201-555-0161
 Email: resident-kilo@test.invalid
 Apartment Number: #512
 Lease Start Date: 11/01/2026
@@ -294,7 +294,7 @@ function ago(minutes) {
 }
 const LEASE = (unit, who) => ({ who, when: ago(60 * 24),
   body: "Hi Team,\nThis resident's lease has been generated.\n\nName: Resident " + who +
-        "\nPhone: 555-0170\nEmail: r-" + unit + "@test.invalid\nApartment Number: #" + unit +
+        "\nPhone: 201-555-0170\nEmail: r-" + unit + "@test.invalid\nApartment Number: #" + unit +
         "\nLease Start Date: 11/01/2026\n" });
 const threads = {
   'C-0512': { subject: 'New Resident Move In - 0512', label: 'Unread Collapsed lease 0512',
@@ -519,7 +519,7 @@ function open(t) {
       '<div>' + t.when + '</div><div aria-label="Message body"></div></div>';
     document.querySelector('[aria-label="Message body"]').textContent =
       "Hi Team,\nThis resident's lease has been generated.\n\nName: Resident November\n" +
-      "Phone: 555-0180\nEmail: r-" + t.unit + "@test.invalid\nApartment Number: #" + t.unit +
+      "Phone: 201-555-0180\nEmail: r-" + t.unit + "@test.invalid\nApartment Number: #" + t.unit +
       "\nLease Start Date: 12/01/2026\n";
   }, 100);
 }

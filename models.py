@@ -86,6 +86,15 @@ class Result:
     # missing email address. Reported rather than guessed at.
     problems: list[str] = field(default_factory=list)
 
+    # The lease start date as the trigger gives it ("09/20/2026"), for the
+    # board's Move-in column. A date, not personal data.
+    move_in: str = ""
+
+    # Which essentials each resident lacks, by position in the trigger email:
+    # [(2, ["phone"])]. Field names only, never values -- this reaches the board,
+    # the pop-up and notifications. See triggers.missing_fields.
+    missing: list = field(default_factory=list)
+
     @property
     def needs_attention(self) -> bool:
         return self.verdict in (Verdict.NEEDS_OUTREACH, Verdict.UNCLEAR)

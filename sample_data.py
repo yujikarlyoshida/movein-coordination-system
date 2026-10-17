@@ -75,7 +75,7 @@ This resident's lease has been generated. Please reach out to the below
 resident(s) to schedule their move-in orientation.
 
 Name: Resident Alpha
-Phone: 555-0142
+Phone: 201-555-0142
 Email: resident-alpha@test.invalid
 Birthday: 04/11
 Apartment Number: #735

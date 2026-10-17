@@ -220,7 +220,7 @@ def test_only_the_essential_four_are_read():
     # Name, unit, phone, email. Everything else in the message is skipped for
     # speed -- not flagged, not stored, not mentioned.
     residents, problems = triggers.parse_residents(
-        "Name: Resident India\nEmail: i@test.invalid\nPhone: 555-0155\n"
+        "Name: Resident India\nEmail: i@test.invalid\nPhone: 201-555-0155\n"
         "Apartment Number: 0406\n"
         "Pet(s) Information: dog owner\n"
         "Vehicle: Camry 2024\n"
@@ -229,7 +229,7 @@ def test_only_the_essential_four_are_read():
     r = residents[0]
 
     assert (r.full_name, r.unit, r.phone, r.email) == (
-        "Resident India", "0406", "555-0155", "i@test.invalid"
+        "Resident India", "0406", "201-555-0155", "i@test.invalid"
     )
     assert problems == []
 
@@ -244,7 +244,7 @@ def test_extra_fields_are_dropped_silently():
     # future change reinstates that, this test should be deleted deliberately,
     # not patched around.
     _, problems = triggers.parse_residents(
-        "Name: Resident Juliet\nEmail: j@test.invalid\nPhone: 555-0166\n"
+        "Name: Resident Juliet\nEmail: j@test.invalid\nPhone: 201-555-0166\n"
         "Apartment Number: 0406\n"
         "Pet(s) Information: dog owner\nVehicle: Camry 2024\n"
     )
@@ -289,7 +289,7 @@ def test_a_quoted_reply_produces_no_spurious_notes():
     # A forwarded trigger carries mail headers and a signature block, all of
     # which look like fields. None of them may generate anything.
     _, problems = triggers.parse_residents(
-        "Name: Resident Lima\nEmail: l@test.invalid\nPhone: 555-0177\n"
+        "Name: Resident Lima\nEmail: l@test.invalid\nPhone: 201-555-0177\n"
         "Apartment Number: 0406\n"
         "\nThank you,\nA Colleague\nTel: 555-0100\nWeb: example.com\n"
         "\nFrom: Leasing Manager <leasing.manager@example.com>\n"
@@ -574,7 +574,7 @@ def test_newest_trigger_wins_for_a_repeated_unit():
 # corporate leases: detected, skipped, never outreach
 # ---------------------------------------------------------------------------
 
-def _lease(unit="0777", name="Resident Golf", extra="", phone="555-0177",
+def _lease(unit="0777", name="Resident Golf", extra="", phone="201-555-0177",
            email="r-golf@test.invalid", subject="New Resident Move In - 0777",
            received="2026-10-01T12:00:00Z", msg_id="corp"):
     return {"id": msg_id, "sender": "leasing.manager@example.com", "subject": subject,
