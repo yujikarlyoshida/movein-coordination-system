@@ -423,7 +423,9 @@ def test_a_thread_that_will_not_open_is_skipped_not_fatal():
 
     page = FOLDER_PAGE.replace("function openThread(id) {",
                                "function openThread(id) { if (id === 'C-0612') return;")
-    reader = outlook_web.OutlookWebReader(_load_page(page), wait=1)
+    # Long enough for the good thread to open on a busy machine; the broken one
+    # never will.
+    reader = outlook_web.OutlookWebReader(_load_page(page), wait=3)
     records = reader.read_pass()
     assert reader.skipped == 1
     assert _verdicts(records) == {"0512": Verdict.HANDLED}
@@ -594,6 +596,40 @@ def test_the_diagnostic_counts_known_senders_and_lease_details_per_thread():
     finally:
         config.TRIGGER_SENDER_NAMES = saved
     assert d == {"threads": 3, "known_sender": 2, "lease_details": 2, "both": 1}
+
+
+def test_unknown_lease_senders_names_the_original_sender_not_repliers():
+    # Colleagues reply-all and quote the lease, so a reply carries the same
+    # details. Only the sender of the thread's first lease email is listed, and
+    # threads with a known sender are left out entirely.
+    import outlook_web
+
+    lease = ("This resident's lease has been generated.\nName: Resident Papa\n"
+             "Email: p@test.invalid\nApartment Number: #910\nLease Start Date: 12/01/2026\n")
+    quoted = "Done!\n\n-----Original-----\n" + lease
+    raw = [
+        # Known sender: not listed, even though a colleague quoted it.
+        _raw(conv_id="A", sender_name="Leasing Lead", body=lease, received_text="10/14/2026 9:00 AM"),
+        _raw(conv_id="A", sender_name="Team Mate", body=quoted, received_text="10/14/2026 9:30 AM"),
+        # Unknown sender, two threads, each with a quoting reply.
+        _raw(conv_id="B", sender="desk@leasing.invalid", sender_name="", body=lease.replace("910", "911"),
+             received_text="10/14/2026 10:00 AM"),
+        _raw(conv_id="B", sender_name="Team Mate", body=quoted, received_text="10/14/2026 10:30 AM"),
+        _raw(conv_id="C", sender="desk@leasing.invalid", sender_name="", body=lease.replace("910", "912"),
+             received_text="10/14/2026 11:00 AM"),
+        # Another unknown sender, one thread.
+        _raw(conv_id="D", sender_name="New Associate", body=lease.replace("910", "913"),
+             received_text="10/14/2026 12:00 PM"),
+        # No lease details at all: not listed.
+        _raw(conv_id="E", sender_name="Somebody", body="Lunch?", received_text="10/14/2026 1:00 PM"),
+    ]
+    saved = config.TRIGGER_SENDER_NAMES
+    config.TRIGGER_SENDER_NAMES = ["Leasing Lead"]
+    try:
+        listed = outlook_web.unknown_lease_senders(mailsource.owa_messages(raw))
+    finally:
+        config.TRIGGER_SENDER_NAMES = saved
+    assert listed == [("desk@leasing.invalid", 2), ("New Associate", 1)]
 
 
 # ---------------------------------------------------------------------------

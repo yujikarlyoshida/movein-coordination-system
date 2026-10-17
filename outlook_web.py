@@ -488,6 +488,41 @@ def diagnose(messages: list[dict]) -> dict[str, int]:
     }
 
 
+def unknown_lease_senders(messages: list[dict]) -> list[tuple[str, int]]:
+    """
+    Who sent the lease emails the rules cannot act on: [(sender, threads)].
+
+    For each thread with lease details but no message from a known sender, the
+    sender of its OLDEST message with lease details -- the original lease email.
+    Later messages are colleagues' replies, and a reply that quotes the lease
+    carries the same details; listing those would name colleagues, not senders
+    to add.
+
+    For the owner's terminal only (see _watch). Colleague names and addresses
+    must not go into the repository, logs or anything shared.
+    """
+    import rules
+    import triggers
+
+    threads: dict[str, list[dict]] = {}
+    for m in messages:
+        conv = m["id"].split(":")[1] if m["id"].count(":") >= 2 else m["id"]
+        threads.setdefault(conv, []).append(m)
+
+    counts: dict[str, int] = {}
+    for msgs in threads.values():
+        if any(triggers.is_trigger_sender(m.get("sender", ""), m.get("sender_name", "")) for m in msgs):
+            continue
+        leases = [m for m in msgs if triggers.mentions_trigger_event(m.get("body", ""))]
+        if not leases:
+            continue
+        dated = [m for m in leases if rules.parse_received(m["received"])]
+        first = min(dated, key=lambda m: rules.parse_received(m["received"])) if dated else leases[0]
+        who = first.get("sender") or first.get("sender_name") or "(sender not shown)"
+        counts[who] = counts.get(who, 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+
+
 # ---------------------------------------------------------------------------
 # --watch: live use before the menu bar integration
 # ---------------------------------------------------------------------------
@@ -501,6 +536,7 @@ def _watch(webview, minutes: float) -> None:
     reader = OutlookWebReader(webview)
     print(f"watching {FOLDER!r} every {minutes:g} min. Sign in in the window if asked.", flush=True)
     last_problem = ""
+    last_unknown: list = []
     while True:
         stamp = time.strftime("%H:%M")
         # Not ready or signed out: look again in seconds, not a full interval,
@@ -533,6 +569,16 @@ def _watch(webview, minutes: float) -> None:
                 print("        more to read: board incomplete until then; next pass in 1 min", flush=True)
             for r in needs + unclear:
                 print(f"    #{r.unit}  {r.verdict.value}", flush=True)
+            # Lease emails the rules cannot act on, and who sent them. Printed
+            # here only, for the owner to choose which belong in config_local.py;
+            # repeated only when the list changes.
+            unknown = unknown_lease_senders(messages)
+            if unknown and unknown != last_unknown:
+                print("        lease emails from senders not on your lists "
+                      "(their units are not judged until you add them):", flush=True)
+                for who, n in unknown:
+                    print(f"          - {who}  ({n} thread{'s' if n != 1 else ''})", flush=True)
+            last_unknown = unknown
         # Say a problem once, not every 20 seconds while it lasts.
         if problem and problem != last_problem:
             print(f"[{stamp}] {problem}", flush=True)
