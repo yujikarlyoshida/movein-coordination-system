@@ -10,9 +10,11 @@ from "0735 needs outreach" to the actual thread, read in Outlook as yourself.
 That is the whole privacy model in one gesture: the board says which unit, the
 mail system says everything else.
 
-Look: warm cream paper, deep green ink, a lime marker highlight and a soft
-periwinkle, rounded cards and pill-shaped statuses. Sentence case, plain words,
-no symbols or emoji anywhere in the text.
+Look: Apple-style. Near-white page, white cards with soft shadows, a frosted
+top bar, large tight headlines, and one pink-to-blue gradient used sparingly --
+the headline's key words, the hot count card and a short rule. Blue pill
+buttons, tinted pill statuses. Sentence case, plain words, no symbols or emoji
+anywhere in the text.
 """
 
 from __future__ import annotations
@@ -29,87 +31,99 @@ from models import Result, Verdict
 CSS = """
 :root {
   color-scheme: light;
-  --paper: #f6f3ee; --card: #fbf9f5; --ink: #1f3a2e; --ink-2: #53655c;
-  --line: rgba(31, 58, 46, .14); --lime: #edf49b; --peri: #d9e1fc;
+  --paper: #fbfbfd; --card: #ffffff; --ink: #1d1d1f; --ink-2: #6e6e73;
+  --line: rgba(0, 0, 0, .08); --fill: #f0f0f3; --accent: #0071e3;
+  --grad: linear-gradient(100deg, #e5317a 0%, #c13fd1 38%, #8a6ce8 66%, #4fb6f5 100%);
+  --hi: #f6ecfb; --soft: #eaf2ff; --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 28px rgba(0, 0, 0, .06);
 }
 * { box-sizing: border-box }
 body {
-  margin: 0; padding: 36px 40px 56px; background: var(--paper); color: var(--ink);
-  font: 15px/1.5 "Avenir Next", "Manrope", ui-rounded, -apple-system, system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
+  margin: 0; padding: 0 40px 64px; background: var(--paper); color: var(--ink);
+  font: 15px/1.47 -apple-system, "SF Pro Text", system-ui, "Helvetica Neue", sans-serif;
+  letter-spacing: -.01em; -webkit-font-smoothing: antialiased;
 }
 .wrap { max-width: 980px; margin: 0 auto }
-.top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 6px }
-.brand { font-weight: 700; font-size: 15px; letter-spacing: -.01em }
-.status { font-size: 13px; color: var(--ink-2) }
-h1 {
-  font-size: 40px; line-height: 1.12; font-weight: 700; letter-spacing: -.025em;
-  margin: 26px 0 8px;
+.top {
+  position: sticky; top: 0; z-index: 5; display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  margin: 0 -40px; padding: 10px 40px; background: rgba(251, 251, 253, .8);
+  -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--line);
 }
-.mark { background: linear-gradient(transparent 58%, var(--lime) 58%, var(--lime) 92%, transparent 92%); padding: 0 4px }
-.lede { font-size: 15px; color: var(--ink-2); margin: 0 0 26px; max-width: 640px }
-.rule { height: 5px; background: linear-gradient(90deg, var(--ink) 0 93%, var(--lime) 93% 100%); border-radius: 3px; margin: 0 0 28px }
-.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 28px }
-.card { background: var(--card); border: 1.5px solid var(--ink); border-radius: 20px; padding: 16px 18px }
-.card.hot { background: var(--lime) }
+.brand { font-weight: 600; font-size: 14px }
+.status { font-size: 12px; color: var(--ink-2) }
+h1 {
+  font: 600 52px/1.07 -apple-system, "SF Pro Display", system-ui, sans-serif; letter-spacing: -.035em;
+  margin: 56px 0 12px;
+}
+.mark { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; padding: 0 2px }
+.lede { font-size: 19px; line-height: 1.42; color: var(--ink-2); margin: 0 0 36px; max-width: 640px }
+.rule { height: 3px; background: var(--grad); border-radius: 3px; margin: 0 0 32px; width: 120px }
+.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 32px }
+.card { background: var(--card); border-radius: 22px; padding: 18px 20px; box-shadow: var(--shadow) }
+.card.hot { border: 2px solid transparent;
+  background: linear-gradient(var(--card), var(--card)) padding-box, var(--grad) border-box }
 .card .label { font-size: 13px; color: var(--ink-2) }
-.card.hot .label { color: var(--ink) }
-.card .n { font-size: 36px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; margin-top: 4px }
-.table { background: var(--card); border: 1.5px solid var(--ink); border-radius: 22px; overflow: hidden }
+.card .n { font: 600 40px/1.1 -apple-system, "SF Pro Display", system-ui, sans-serif; letter-spacing: -.03em; margin-top: 6px }
+.card.hot .n { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent }
+.table { background: var(--card); border-radius: 24px; overflow: hidden; box-shadow: var(--shadow) }
 table { width: 100%; border-collapse: collapse }
-th { text-align: left; font-size: 12.5px; font-weight: 600; color: var(--ink-2); padding: 14px 20px; border-bottom: 1.5px solid var(--ink) }
-td { padding: 14px 20px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 14.5px }
+th { text-align: left; font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 16px 22px 10px; border-bottom: 1px solid var(--line) }
+td { padding: 16px 22px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 14.5px }
 tr:last-child td { border-bottom: 0 }
-.unit a { color: var(--ink); font-weight: 700; font-size: 16px; text-decoration: none; letter-spacing: -.01em }
-.unit a:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px }
+.unit a { color: var(--ink); font-weight: 600; font-size: 17px; text-decoration: none; font-variant-numeric: tabular-nums }
+.unit a:hover { color: var(--accent) }
 .check { color: var(--ink) }
 .note { font-size: 13px; color: var(--ink-2); margin-top: 3px }
-.pill { display: inline-block; font-size: 13px; font-weight: 600; padding: 5px 14px; border-radius: 999px; white-space: nowrap }
-.p-needs { background: var(--ink); color: var(--paper) }
-.p-unclear { background: var(--lime); color: var(--ink); border: 1.5px solid var(--ink) }
-.p-skipped { background: transparent; color: var(--ink); border: 1.5px solid var(--ink) }
-.p-handled { background: var(--peri); color: var(--ink) }
-.empty { padding: 36px 20px; text-align: center; color: var(--ink-2) }
-.foot { margin-top: 26px; font-size: 12.5px; color: var(--ink-2); line-height: 1.7 }
+.pill { display: inline-block; font-size: 12.5px; font-weight: 600; padding: 5px 13px; border-radius: 999px; white-space: nowrap }
+.p-needs { background: var(--ink); color: #fff }
+.p-unclear { background: var(--hi); color: #8a2bb0 }
+.p-skipped { background: var(--fill); color: var(--ink-2) }
+.p-handled { background: var(--soft); color: #0058b0 }
+.empty { padding: 44px 22px; text-align: center; color: var(--ink-2) }
+.foot { margin-top: 32px; font-size: 12px; color: var(--ink-2); line-height: 1.7 }
 .right { display: flex; align-items: center; gap: 14px }
-.btn { font: inherit; font-size: 14px; font-weight: 600; border-radius: 999px; padding: 9px 20px; cursor: pointer;
-  border: 1.5px solid var(--ink); background: var(--card); color: var(--ink) }
-.btn.dark { background: var(--ink); color: var(--paper) }
-.btn:hover { filter: brightness(.96) } .btn:active { transform: scale(.98) }
+.btn { font: inherit; font-size: 14px; font-weight: 500; border-radius: 999px; padding: 8px 18px; cursor: pointer;
+  border: 0; background: var(--fill); color: var(--ink) }
+.btn.dark { background: var(--accent); color: #fff }
+.btn:hover { filter: brightness(.95) } .btn:active { transform: scale(.98) }
 .btn.small { font-size: 12.5px; padding: 4px 12px }
-.notice { background: var(--peri); border-radius: 14px; padding: 10px 16px; margin: 0 0 22px; font-size: 14px }
-.panel { margin-top: 28px; background: var(--card); border: 1.5px solid var(--ink); border-radius: 22px; padding: 20px 22px }
-.panel h2 { font-size: 20px; font-weight: 700; letter-spacing: -.015em; margin: 0 0 4px }
-.panel .sub { font-size: 13.5px; color: var(--ink-2); margin: 0 0 16px }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px }
-.chip { display: inline-flex; align-items: center; gap: 10px; border: 1.5px solid var(--ink); border-radius: 999px; padding: 5px 6px 5px 14px; font-size: 13.5px }
+.notice { background: var(--soft); border-radius: 14px; padding: 12px 18px; margin: 24px 0 0; font-size: 14px }
+.panel { margin-top: 32px; background: var(--card); border-radius: 24px; padding: 24px 26px; box-shadow: var(--shadow) }
+.panel h2 { font: 600 22px/1.2 -apple-system, "SF Pro Display", system-ui, sans-serif; letter-spacing: -.02em; margin: 0 0 4px }
+.panel .sub { font-size: 14px; color: var(--ink-2); margin: 0 0 18px }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px }
+.chip { display: inline-flex; align-items: center; gap: 10px; background: var(--fill); border-radius: 999px; padding: 5px 6px 5px 14px; font-size: 13.5px }
 .chip .kind { color: var(--ink-2); font-size: 12px }
-.chip button { font: inherit; font-size: 12px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; padding: 3px 8px; border-radius: 999px }
-.chip button:hover { background: var(--paper); color: var(--ink) }
+.chip button { font: inherit; font-size: 12px; border: 0; background: transparent; color: var(--accent); cursor: pointer; padding: 3px 8px; border-radius: 999px }
+.chip button:hover { background: var(--card) }
 .addrow { display: flex; gap: 10px }
-.addrow input { flex: 1; font: inherit; font-size: 14px; border: 1.5px solid var(--ink); border-radius: 999px; padding: 9px 16px; background: var(--paper); color: var(--ink) }
-.addrow input:focus { outline: 3px solid var(--peri) }
-.seen { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line) }
+.addrow input { flex: 1; font: inherit; font-size: 14px; border: 1px solid rgba(0, 0, 0, .14); border-radius: 12px; padding: 9px 14px; background: var(--card); color: var(--ink) }
+.addrow input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(0, 113, 227, .18) }
+.seen { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line) }
 .seen .item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 14px }
-.seen .hl { background: var(--lime); padding: 1px 6px; border-radius: 6px }
+.seen .hl { background: var(--hi); padding: 1px 6px; border-radius: 6px }
 .no-app .app-only { display: none }
 .sites { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px }
-.sites-label { font-size: 13px; color: var(--ink-2) }
-.p-missing { background: transparent; color: var(--ink); border: 1.5px dashed var(--ink); margin-top: 6px; cursor: pointer }
+.sites-label { font-size: 12px; color: var(--ink-2) }
+.p-missing { background: transparent; color: var(--ink); border: 1px dashed rgba(0, 0, 0, .3); margin-top: 6px; cursor: pointer }
 .gap { font-size: 13px; color: var(--ink); margin-top: 3px }
 .gap .blocks { color: var(--ink-2) }
-.veil { position: fixed; inset: 0; background: rgba(31, 58, 46, .38); display: none; align-items: center; justify-content: center; padding: 24px; z-index: 10 }
+.veil { position: fixed; inset: 0; background: rgba(0, 0, 0, .28); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  display: none; align-items: center; justify-content: center; padding: 24px; z-index: 10 }
 .veil.open { display: flex }
-.pop { background: var(--card); border: 1.5px solid var(--ink); border-radius: 26px; padding: 26px 28px; width: 100%; max-width: 520px; max-height: 80vh; overflow: auto }
-.pop h2 { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 6px }
+.pop { background: var(--card); border-radius: 28px; padding: 28px 30px; width: 100%; max-width: 520px; max-height: 80vh; overflow: auto;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .22) }
+.pop h2 { font: 600 28px/1.15 -apple-system, "SF Pro Display", system-ui, sans-serif; letter-spacing: -.025em; margin: 0 0 6px }
 .pop .sub { font-size: 14px; color: var(--ink-2); margin: 0 0 18px }
 .pop .unitgap { border-top: 1px solid var(--line); padding: 12px 0 }
 .pop .unitgap b { font-size: 17px }
 .pop .actions { display: flex; justify-content: flex-end; margin-top: 16px }
-.p-prepare { background: var(--lime); color: var(--ink); border: 1.5px solid var(--ink); cursor: pointer; margin-left: 6px }
-.p-done { background: var(--peri); color: var(--ink) }
+.p-prepare { background: var(--accent); color: #fff; cursor: pointer; margin-left: 6px }
+.p-done { background: var(--soft); color: #0058b0 }
 @media (max-width: 720px) {
-  body { padding: 24px 16px 40px } h1 { font-size: 30px }
+  body { padding: 0 16px 40px } .top { margin: 0 -16px; padding: 10px 16px; flex-wrap: wrap }
+  .top .status, .sites-label { display: none } .right { flex-wrap: wrap; gap: 8px }
+  h1 { font-size: 34px; margin-top: 36px } .lede { font-size: 16px }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)) }
   th, td { padding: 12px 12px }
 }

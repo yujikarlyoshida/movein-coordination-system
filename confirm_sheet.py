@@ -26,18 +26,19 @@ import triggers
 CSS = """
 #sheetveil .pop { max-width: 680px }
 .sheet { max-width: 640px }
-.sheet h2 { font-size: 28px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 10px }
-.verified { background: var(--peri); border-radius: 14px; padding: 9px 14px; font-size: 14px; margin-bottom: 18px }
+.sheet h2 { font: 600 28px/1.15 -apple-system, "SF Pro Display", system-ui, sans-serif; letter-spacing: -.025em; margin: 0 0 10px }
+.verified { background: var(--soft); border-radius: 14px; padding: 9px 14px; font-size: 14px; margin-bottom: 18px }
 .resident { border-top: 1px solid var(--line); padding: 14px 0 6px }
-.resident h3 { font-size: 15px; margin: 0 0 10px; font-weight: 700 }
+.resident h3 { font-size: 15px; margin: 0 0 10px; font-weight: 600 }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px }
 .f label { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 3px }
-.f input { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 12px; background: var(--paper); color: var(--ink) }
-.f.need input { border-color: var(--ink); background: var(--lime) }
-.f .hint { font-size: 12px; color: var(--ink); margin-top: 3px }
+.f input { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; border: 1px solid rgba(0, 0, 0, .14); border-radius: 12px; padding: 8px 12px; background: var(--card); color: var(--ink) }
+.f input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(0, 113, 227, .18) }
+.f.need input { border-color: #c13fd1; background: var(--hi) }
+.f .hint { font-size: 12px; color: #8a2bb0; margin-top: 3px }
 .f .bad { font-size: 12px; color: #9b2c1f; margin-top: 3px; display: none }
 .f.err .bad { display: block } .f.err input { border-color: #9b2c1f }
-.confirmname { font-size: 13.5px; display: flex; gap: 8px; align-items: center; margin-top: 8px; background: var(--lime); border-radius: 10px; padding: 7px 10px }
+.confirmname { font-size: 13.5px; display: flex; gap: 8px; align-items: center; margin-top: 8px; background: var(--hi); border-radius: 12px; padding: 8px 12px }
 .steps { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 14px }
 .steps label { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; margin-bottom: 9px }
 .steps .why { font-size: 12.5px; color: var(--ink-2) }
@@ -47,8 +48,8 @@ CSS = """
 .sheet .formerr { color: #9b2c1f; font-size: 13.5px; margin-top: 8px; min-height: 18px }
 .progress { list-style: none; padding: 0; margin: 14px 0 0 }
 .progress li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14.5px }
-.progress .st { font-weight: 700 } .progress .st.failed { color: #9b2c1f } .progress .detail { font-size: 12.5px; color: var(--ink-2) }
-.progress li.your_turn { background: var(--lime); border-radius: 12px; padding: 10px 12px }
+.progress .st { font-weight: 600 } .progress .st.failed { color: #9b2c1f } .progress .detail { font-size: 12.5px; color: var(--ink-2) }
+.progress li.your_turn { background: var(--hi); border-radius: 14px; padding: 10px 14px; border-top: 0 }
 .progress li.your_turn .detail { color: var(--ink); font-size: 14px }
 .progress .turn { margin-top: 8px; display: flex; gap: 8px }
 """
