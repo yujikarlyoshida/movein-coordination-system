@@ -122,6 +122,46 @@ class ConnectorMailSource(MailSource):
         return True, ""
 
 
+class OutlookWebMailSource(MailSource):
+    """
+    Outlook on the web, read from the app's own signed-in window.
+
+    Needs the window: `attach()` hands in its WKWebView (see outlook_web.py).
+    Each call reads the Move ins folder, opening only threads that are new or
+    changed since the last call. Signing in is the user's job; when the session
+    ends, `list_recent_messages` raises outlook_web.SignedOut so the caller can
+    say so rather than show an empty board.
+    """
+
+    name = "outlook_web"
+
+    def __init__(self) -> None:
+        self._reader = None
+
+    def attach(self, webview) -> None:
+        import outlook_web
+
+        self._reader = outlook_web.OutlookWebReader(webview)
+
+    def list_recent_messages(self, days: int = 30) -> list[dict]:
+        if self._reader is None:
+            raise RuntimeError("no Outlook window attached")
+        return owa_messages(self._reader.read_pass(), days=days)
+
+    def is_available(self) -> tuple[bool, str]:
+        if self._reader is None:
+            return False, "the Outlook window is not open"
+        try:
+            state = self._reader.state()
+        except Exception as exc:  # noqa: BLE001
+            return False, f"the Outlook window did not answer: {exc}"
+        if state == "signed_out":
+            return False, "signed out of Outlook; sign in again in the window"
+        if state != "ready":
+            return False, "Outlook is still loading"
+        return True, ""
+
+
 def owa_messages(raw: list[dict], days: int | None = None) -> list[dict]:
     """
     Convert owa_extract.js output into the app's message dicts.
