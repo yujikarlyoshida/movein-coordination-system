@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Mock shaped like Outlook on the web compose (tests only)</title>
+<style>#compose{display:none}#compose.on{display:block}[contenteditable]{border:1px solid #ccc;min-height:20px;margin:4px 0}</style></head>
+<body>
+<!-- Test fixture only. Shaped like what the read-only probe found in Outlook on
+     the web's compose: To and Cc as contenteditable areas labelled "To" / "Cc",
+     a Subject input labelled "Subject", a contenteditable "Message body" with
+     role textbox that starts with the user's automatic signature, and Send /
+     Discard buttons. Fictional, sends nothing. -->
+<button aria-label="New mail" id="new">New mail</button>
+<div id="compose">
+  <div contenteditable="true" aria-label="To" id="to"></div>
+  <div contenteditable="true" aria-label="Cc" id="cc"></div>
+  <input type="text" aria-label="Subject" id="MSG_1_SUBJECT">
+  <div contenteditable="true" role="textbox" aria-label="Message body" id="body"><div id="signature"><p>-- Sample Signature</p></div></div>
+  <button aria-label="Send" id="send">Send</button>
+  <button aria-label="Discard" id="discard">Discard</button>
+</div>
+<script>
+  window.__mock = { sent: [], discarded: 0 };
+  const compose = document.getElementById('compose');
+  document.getElementById('new').addEventListener('click', () => {
+    compose.classList.add('on');
+    document.getElementById('to').innerHTML = '';
+    document.getElementById('cc').innerHTML = '';
+    document.getElementById('MSG_1_SUBJECT').value = '';
+    document.getElementById('body').innerHTML = '<div id="signature"><p>-- Sample Signature</p></div>';
+  });
+  document.getElementById('send').addEventListener('click', () => {
+    window.__mock.sent.push({ to: document.getElementById('to').innerText.trim(), cc: document.getElementById('cc').innerText.trim(),
+      subject: document.getElementById('MSG_1_SUBJECT').value, body: document.getElementById('body').innerHTML });
+    compose.classList.remove('on');
+  });
+  document.getElementById('discard').addEventListener('click', () => { window.__mock.discarded++; compose.classList.remove('on'); });
+</script>
+</body></html>

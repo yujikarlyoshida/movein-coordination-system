@@ -20,8 +20,11 @@ Mapped read-only before any real run (labels and ids, never values):
            resident-contact-details-first-name / -last-name / -email /
            -phone-number; footer: resident-create-footer-continue-button
            later steps (unit, dates, review, Save): not seen
-  Outlook  the welcome body is left to you: your own Outlook template goes out,
-           never the built-in stand-in text.
+  Outlook  compose: To / Cc as editable areas labelled "To" / "Cc", an input
+           labelled "Subject", an editable "Message body". The app opens New
+           mail and fills all four -- the body from your captured template
+           (welcome_template.py), above any automatic signature -- checks
+           them, and leaves Send to you.
 
 Steps not seen before are recorded as they appear -- structure only, into a
 private file under LEARN_DIR -- so they can be built out after the run. On
@@ -338,18 +341,102 @@ class Guided:
 
     # -- Outlook welcome ---------------------------------------------------------
 
+    # The compose window, as mapped read-only: To and Cc are editable areas
+    # labelled "To" / "Cc", Subject an input labelled "Subject", the body an
+    # editable "Message body" box. The app opens it and fills it; Send is yours.
+    _OW_BODY = "G.all('[contenteditable=\"true\"][aria-label=\"Message body\"]').find(G.shown)"
+
+    _OW_FILL = r"""
+const body = G.all('[contenteditable="true"][aria-label="Message body"]').find(G.shown);
+if (!body) throw new Error('no new message is open');
+const well = label => G.all('[contenteditable="true"]').find(e => G.shown(e) && e.getAttribute('aria-label') === label);
+const add = (label, list) => {
+  if (!list.length) return;
+  const w = well(label);
+  if (!w) throw new Error('could not find the ' + label + ' field');
+  w.focus();
+  // Typed the way a person would, so Outlook resolves each recipient.
+  for (const a of list) document.execCommand('insertText', false, a + ';');
+  w.blur();
+};
+add('To', D.to);
+add('Cc', D.cc ? [D.cc] : []);
+const subj = G.all('input').find(i => G.shown(i) && i.getAttribute('aria-label') === 'Subject');
+if (!subj) throw new Error('could not find the Subject field');
+G.type(subj, D.subject);
+if (D.html) {
+  // At the very top of the body: an automatic signature stays below it.
+  body.focus();
+  const r = document.createRange(); r.setStart(body, 0); r.collapse(true);
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  const before = body.innerHTML.length;
+  document.execCommand('insertHTML', false, D.html);
+  if (body.innerHTML.length <= before) {
+    // The editor ignored the insert: put it in directly, then tell the editor.
+    body.insertAdjacentHTML('afterbegin', D.html);
+    body.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  }
+}
+"""
+
+    _OW_CHECK = r"""
+const body = G.all('[contenteditable="true"][aria-label="Message body"]').find(G.shown);
+const well = label => G.all('[contenteditable="true"]').find(e => G.shown(e) && e.getAttribute('aria-label') === label);
+const seen = w => w ? (w.innerText + ' ' + [...w.querySelectorAll('[title],[aria-label]')]
+                 .map(e => (e.getAttribute('title') || '') + ' ' + (e.getAttribute('aria-label') || '')).join(' ')).toLowerCase() : '';
+const to = seen(well('To')), cc = seen(well('Cc'));
+const subj = G.all('input').find(i => G.shown(i) && i.getAttribute('aria-label') === 'Subject');
+const html = body ? body.innerHTML : '';
+return JSON.stringify({ ok: true,
+  toOk: D.to.every(a => to.includes(a.toLowerCase())),
+  ccOk: !D.cc || cc.includes(D.cc.toLowerCase()),
+  subjectOk: !!subj && subj.value === D.subject,
+  bodyOk: !D.html || (html.includes(D.names) && !html.includes('(Resident Name)') && !/fluentsystemicons/i.test(html)) });
+"""
+
     def welcome(self, job) -> str:
-        """Your template, your Send: the sheet gives the exact recipients and subject."""
+        """Open a new message, fill To, Cc, Subject and your template; you press Send."""
         w = job.welcome
+        data = {"to": list(w.get("to", [])), "cc": w.get("cc", "") or "", "subject": w.get("subject", ""),
+                "html": w.get("html", "") or "", "names": w.get("names", "")}
+        if not data["to"]:
+            raise RuntimeError("no resident email address to send to")
         self.h.show_tab("outlook")
-        cc = f" Cc: {w['cc']}." if w.get("cc") else ""
+
+        # Never write into a message already in progress.
+        if self._yes("outlook", f"(() => {{ const b = {self._OW_BODY}; return b && b.innerText.trim().length > 40; }})()"):
+            raise RuntimeError("a message is already open in the Email tab; send or discard it, then try again")
+        if not self._yes("outlook", self._OW_BODY):
+            self._do("outlook",
+                     "const b = G.all('button,[role=button]').find(e => G.shown(e) && "
+                     "/^new (mail|email|message)$/i.test((e.getAttribute('aria-label') || G.text(e)).trim()));"
+                     "if (!b) throw new Error('could not find New mail'); b.click();")
+            self._until("outlook", self._OW_BODY, "the new message to open", timeout=30)
+
+        import outlook_web
+
+        self._do("outlook", self._OW_FILL, data)
+        outlook_web.pause(0.8)   # let Outlook resolve the recipients
+        check = self._js("outlook", self._OW_CHECK, data)
+        problems = [what for key, what in (("toOk", "the To recipients"), ("ccOk", "the Cc"),
+                                           ("subjectOk", "the subject"), ("bodyOk", "the body"))
+                    if not check.get(key)]
+        if data["html"]:
+            lead = ("Everything checks out: recipients, subject and your template with the names filled in. "
+                    if not problems else f"Look closely at {', '.join(problems)}: the app could not confirm it. ")
+            self._your_turn(
+                "outlook", "welcome",
+                lead + "Look it over in the Email tab, then press Send yourself.",
+                f"!{self._OW_BODY}")
+            return "the welcome email was filled from your template; you pressed Send"
+
+        # No captured template yet: the fields are filled, the body is yours.
         self._your_turn(
             "outlook", "welcome",
-            f"In the Outlook tab, start a new message from your Welcome template. "
-            f"To: {'; '.join(w.get('to', []))}.{cc} Subject: {w.get('subject', '')}. "
-            "Replace (Resident Name) with the first name(s), check it, and press Send. "
-            "Then press Done here.")
-        return "you sent the welcome email from your template"
+            "To, Cc and Subject are filled. Insert your Welcome template (Mail template), "
+            "replace (Resident Name) with the first name(s), check it, and press Send.",
+            f"!{self._OW_BODY}")
+        return "the welcome email was sent from your template"
 
     # -- the whole unit ------------------------------------------------------------
 

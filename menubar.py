@@ -172,7 +172,9 @@ class TriageDelegate(NSObject):
         self._running = False
 
         # Sign-in state of each tab in the app's browser, for the board.
-        self._connections = None
+        # Empty (not None) in live mode, so the board's Open browser button
+        # shows from the start, before the first sign-in check.
+        self._connections = None if self.demo else []
 
         # A guided run's "your turn": set by the sheet's Done / Skip buttons.
         self._turn_done = threading.Event()
@@ -598,9 +600,15 @@ class TriageDelegate(NSObject):
         unit = clean["unit"]
         people = [types.SimpleNamespace(first_name=r["first"], email=r["email"]) for r in clean["residents"]]
         subject, body, recipients, _ = staging.compose_welcome(unit, people)
+        import welcome_template
+
         job = autofill.Job(unit=unit, residents=clean["residents"], steps=clean["steps"],
                            welcome={"to": recipients, "cc": getattr(config, "WELCOME_CC", ""),
-                                    "subject": subject, "body": body},
+                                    "subject": subject, "body": body,
+                                    # Your captured template, filled from the names as
+                                    # confirmed on the sheet.
+                                    "html": staging.welcome_html(people),
+                                    "names": welcome_template.greeting_names([p.first_name for p in people])},
                            send_activation_email=clean["send_activation_email"])
         rows = {s: [autofill.STEP_LABELS[s], "waiting", ""] for s in job.steps}
 

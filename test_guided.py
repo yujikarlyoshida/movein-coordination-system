@@ -119,7 +119,11 @@ class _User:
               go.shadowRoot.querySelector('button').click();
               return '1'; })()""" % self.unit)
         elif step == "welcome":
-            self.done_flag = True
+            if "outlook" in self.views and self.views["outlook"] is not None:
+                self.js("outlook", "(() => { const s = document.getElementById('send'); "
+                                   "if (s && s.offsetWidth) s.click(); return '1'; })()")
+            else:
+                self.done_flag = True
 
     def user_done(self):
         if self.done_flag:
@@ -199,22 +203,71 @@ def test_the_app_never_presses_a_final_button_itself():
     assert user.js("xfinity", "JSON.stringify(window.__mock.saved)") == []
 
 
-def test_welcome_is_yours_with_the_exact_recipients_and_subject():
+TEMPLATE = ('<table style="width:600px"><tr><td><img src="https://images.example.invalid/logo.png"></td></tr></table>'
+            '<h2>Hello Resident Oscar and Resident Papa,</h2><p>Welcome home.</p><p>With gratitude,</p>')
+
+
+def _welcome_job(html=TEMPLATE, **kw):
+    return _job(steps=["welcome"], welcome=dict({
+        "to": ["r-oscar@test.invalid", "r-papa@test.invalid"], "cc": "team@example.invalid",
+        "subject": "The Property | Welcome Home #0611", "body": "plain",
+        "html": html, "names": "Resident Oscar and Resident Papa"}, **kw))
+
+
+def test_welcome_fills_everything_and_you_press_send():
     if _skip():
         return
-    views = {"outlook": None}
+    views = {"outlook": _view(PAGES / "outlook_like.html")}
     user = _User(views, "0611")
-    job = _job(steps=["welcome"], welcome={"to": ["r-oscar@test.invalid", "r-papa@test.invalid"],
-                                           "cc": "team@example.com", "subject": "The Property | Welcome Home #0611",
-                                           "body": "built-in"})
-    # The welcome step only hands over; nothing runs in the page.
-    g = _guide({"outlook": _view(PAGES / "riseio_like.html")}, user)
-    (result,) = g.run(job, ["welcome"])
+    (result,) = _guide(views, user).run(_welcome_job(), ["welcome"])
+    assert result[1], result[2]
+    (sent,) = user.js("outlook", "JSON.stringify(window.__mock.sent)")
+    assert "r-oscar@test.invalid" in sent["to"] and "r-papa@test.invalid" in sent["to"]
+    assert "team@example.invalid" in sent["cc"]
+    assert sent["subject"] == "The Property | Welcome Home #0611"
+    # Your template, intact, above the automatic signature.
+    assert sent["body"].index("Hello Resident Oscar and Resident Papa,") < sent["body"].index("Sample Signature")
+    assert '<table style="width:600px">' in sent["body"]
+    (step, detail), = user.turns
+    assert detail.startswith("Everything checks out") and "press Send yourself" in detail
+
+
+def test_welcome_is_never_sent_by_the_app():
+    if _skip():
+        return
+    views = {"outlook": _view(PAGES / "outlook_like.html")}
+    user = _User(views, "0611", act=False)
+    (result,) = _guide(views, user, turn_timeout=2).run(_welcome_job(), ["welcome"])
+    assert not result[1] and "timed out waiting for you" in result[2]
+    assert user.js("outlook", "JSON.stringify(window.__mock.sent)") == []
+
+
+def test_a_message_already_in_progress_is_left_alone():
+    if _skip():
+        return
+    views = {"outlook": _view(PAGES / "outlook_like.html")}
+    user = _User(views, "0611")
+    user.js("outlook", "(() => { document.getElementById('new').click(); "
+                       "document.getElementById('body').innerText = 'A reply I was in the middle of writing to someone else.'; "
+                       "return '1'; })()")
+    (result,) = _guide(views, user).run(_welcome_job(), ["welcome"])
+    assert not result[1] and "already open" in result[2]
+    assert user.js("outlook", "document.getElementById('body').innerText") == \
+        "A reply I was in the middle of writing to someone else."
+    assert user.js("outlook", "document.getElementById('to').innerText") == ""
+
+
+def test_without_a_captured_template_the_body_is_handed_to_you():
+    if _skip():
+        return
+    views = {"outlook": _view(PAGES / "outlook_like.html")}
+    user = _User(views, "0611")
+    (result,) = _guide(views, user).run(_welcome_job(html=""), ["welcome"])
     assert result[1]
     (step, detail), = user.turns
-    assert "To: r-oscar@test.invalid; r-papa@test.invalid." in detail
-    assert "Cc: team@example.com." in detail and "Subject: The Property | Welcome Home #0611." in detail
-    assert "your Welcome template" in detail
+    assert "Insert your Welcome template" in detail
+    (sent,) = user.js("outlook", "JSON.stringify(window.__mock.sent)")
+    assert sent["subject"] == "The Property | Welcome Home #0611"
 
 
 # ---------------------------------------------------------------------------

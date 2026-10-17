@@ -93,6 +93,8 @@ tr:last-child td { border-bottom: 0 }
 .seen .item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 14px }
 .seen .hl { background: var(--lime); padding: 1px 6px; border-radius: 6px }
 .no-app .app-only { display: none }
+.sites { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px }
+.sites-label { font-size: 13px; color: var(--ink-2) }
 .p-missing { background: transparent; color: var(--ink); border: 1.5px dashed var(--ink); margin-top: 6px; cursor: pointer }
 .gap { font-size: 13px; color: var(--ink); margin-top: 3px }
 .gap .blocks { color: var(--ink-2) }
@@ -406,7 +408,16 @@ def render(results: list[Result], operator: str = "", status: str = "",
         table = ('<div class="table"><div class="empty">No move-in leases in the window yet. '
                  "The board fills in after the first check.</div></div>")
 
-    run_button = ('<button class="btn dark app-only" data-action="run">Run check</button>'
+    # Open browser: the app's own browser (Outlook, RiseIO, Xfinity tabs), from
+    # the top of the board, whenever there are systems to sign in to.
+    browser_button = ""
+    if interactive and connections is not None:
+        browser_button = (
+            '<span class="sites app-only"><span class="sites-label">Open</span>'
+            + "".join(f'<button class="btn small" data-action="open_site" data-value="{key}">{label}</button>'
+                      for key, label in (("outlook", "Email"), ("riseio", "RiseIO"), ("xfinity", "Xfinity")))
+            + "</span>")
+    run_button = (browser_button + '<button class="btn dark app-only" data-action="run">Run check</button>'
                   if interactive else "")
     notice_html = f'<div class="notice">{_esc(notice)}</div>' if notice else ""
     panel = _senders_panel(senders, unknown or []) if interactive else ""

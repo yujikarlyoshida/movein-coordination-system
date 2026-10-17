@@ -1,5 +1,5 @@
 """
-The welcome email from a saved template: formatting rebuilt from plain text.
+The welcome email from the captured template: used as it is, names filled in.
 
 Run with:  python -m pytest test_template.py -v
        or: python test_template.py
@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 
 _TMP = Path(tempfile.mkdtemp(prefix="movein-test-"))
-os.environ["MOVEIN_TEMPLATE_PATH"] = str(_TMP / "welcome_template.txt")
+os.environ["MOVEIN_TEMPLATE_PATH"] = str(_TMP / "welcome_template.html")
 os.environ.setdefault("MOVEIN_HISTORY_PATH", str(_TMP / "history.sqlite3"))
 
 import config  # noqa: E402
@@ -30,98 +30,77 @@ config.PROPERTY_NAME = "The Property"
 
 import welcome_template as wt  # noqa: E402
 
-SAMPLE = """
-Hello (Resident Name),
-Welcome home to The Property. Below are a few details for your arrival.
-
-Getting Started
-Here is what to know before you arrive at the building.
-
-We will cover:
-Connecting to the network
-The resident app
-And more
-Orientations are held a few days before move-in, at a time that suits you and your schedule.
-
-To book, open the app and go to:
-Community > Services > Orientation
+# Shaped like an Outlook template body: layout table, hosted image, two empty
+# icon-font blocks, a list, and the placeholder.
+SAMPLE = (
+    '<div><table style="width:600px"><tr><td align="center">'
+    '<img src="https://images.example.invalid/logo.png" alt="logo"></td></tr></table>'
+    '<p><span style="font-family: FluentSystemIcons; font-size:20px"></span></p>'
+    '<h2 style="text-align:center">Hello (Resident Name),</h2>'
+    '<p>Welcome home to The Property.&nbsp;Details below.</p>'
+    '<div style="font-family:&quot;FluentSystemIcons&quot;"><span></span></div>'
+    '<p><b>Getting started</b></p><ul><li>Connect to the network</li><li>Book an orientation</li></ul>'
+    '<p>Questions? <a href="mailto:office@example.invalid">office@example.invalid</a></p>'
+    "<p>With gratitude,</p></div>"
+)
 
 
-
-Payments
-
-Checks may be sent to:
-
-The Property
-Attn: Office
-100 Example Street
-Springfield, ZZ 00000
-
-Questions? Write to office@example.com.
-
-With gratitude,
-"""
+def test_the_template_is_used_as_it_is_with_names_filled_in():
+    out, _ = wt.render(["Maria", "James"], SAMPLE)
+    assert "Hello Maria and James," in out and "(Resident Name)" not in out
+    expected = (SAMPLE.replace("(Resident Name)", "Maria and James")
+                .replace('<p><span style="font-family: FluentSystemIcons; font-size:20px"></span></p>', "<p></p>")
+                .replace('<div style="font-family:&quot;FluentSystemIcons&quot;"><span></span></div>', ""))
+    assert out == expected      # nothing else changed, byte for byte
 
 
-def _blocks():
-    return [k for k, _ in wt._blocks(SAMPLE)]
+def test_icon_font_blocks_and_glyphs_are_removed():
+    out, text = wt.render(["Maria"], SAMPLE + "\U0001f600✅")
+    assert "fluentsystemicons" not in out.lower()
+    for ch in ("", "", "\U0001f600", "✅"):
+        assert ch not in out and ch not in text
 
 
-def test_structure_is_read_back_from_plain_text():
-    b = wt._blocks(SAMPLE)
-    kinds = [k for k, _ in b]
-    assert kinds.count("heading") == 2
-    assert ("list", ["Connecting to the network", "The resident app", "And more"]) in b
-    assert ("path", "Community > Services > Orientation") in b
-    assert ("address", ["The Property", "Attn: Office", "100 Example Street", "Springfield, ZZ 00000"]) in b
-    assert "break" in kinds
-    # The sentence after the list is a paragraph, not a fourth item.
-    assert any(k == "para" and str(c).startswith("Orientations are held") for k, c in b)
+def test_layout_images_and_links_survive():
+    out, _ = wt.render(["Maria"], SAMPLE)
+    assert '<table style="width:600px">' in out
+    assert '<img src="https://images.example.invalid/logo.png" alt="logo">' in out
+    assert '<a href="mailto:office@example.invalid">' in out and "&nbsp;" in out
 
 
-def test_names_fill_the_placeholder():
-    html_body, text = wt.render(["Maria", "James"], SAMPLE)
-    assert "Hello Maria and James," in text and "(Resident Name)" not in html_body
-    assert wt.render([], SAMPLE)[1].startswith("Hello there,")
-    assert "Hello Ana," in wt.render(["Ana"], SAMPLE)[1]
+def test_names_are_escaped():
+    out, _ = wt.render(['<b>Maria</b>'], SAMPLE)
+    assert "<b>Maria</b>" not in out and "&lt;b&gt;Maria&lt;/b&gt;" in out
 
 
-def test_formatting_is_rebuilt_in_html():
-    html_body, _ = wt.render(["Maria"], SAMPLE)
-    assert "<b style=\"font-size:16px\">Getting Started</b>" in html_body
-    assert "<ul" in html_body and "<li style=\"margin:0 0 4px\">The resident app</li>" in html_body
-    assert "<b>Community &gt; Services &gt; Orientation</b>" in html_body
-    assert "100 Example Street<br>Springfield, ZZ 00000" in html_body
-    assert '<a href="mailto:office@example.com"' in html_body
+def test_greeting_for_none_one_or_many():
+    assert wt.greeting_names([]) == "there"
+    assert wt.greeting_names(["Ana"]) == "Ana"
+    assert wt.greeting_names(["Ana", "Ben", "Cy"]) == "Ana, Ben and Cy"
 
 
-def test_icon_glyphs_and_emoji_are_stripped():
-    html_body, text = wt.render(["Maria"], SAMPLE + "\U0001f600✅")
-    for ch in ("", "\U0001f600", "✅"):
-        assert ch not in html_body and ch not in text
-
-
-def test_values_are_escaped():
-    html_body, _ = wt.render(['<b>Maria</b>'], SAMPLE)
-    assert "<b>Maria</b>" not in html_body and "&lt;b&gt;Maria&lt;/b&gt;" in html_body
+def test_a_plain_text_copy_is_derived_from_the_same_html():
+    _, text = wt.render(["Maria"], SAMPLE)
+    assert text.startswith("Hello Maria,")
+    assert "- Connect to the network\n" in text and "- Book an orientation" in text
+    assert "<" not in text
 
 
 def test_saving_is_private_and_staging_uses_it():
-    import rules
     import sample_data
     import staging
 
     wt.save(SAMPLE)
     try:
-        assert wt.TEMPLATE_PATH.stat().st_mode & 0o777 == 0o600
+        assert Path(wt.TEMPLATE_PATH).stat().st_mode & 0o777 == 0o600
         with sample_data.fixture_config():
             plans = {p.unit: p for p in staging.collect(sample_data.MESSAGES)}
         draft = next(a.payload for a in plans["0735"].actions if a.kind == "welcome_draft")
-        assert draft["body"].startswith("Hello Resident,\nWelcome home to The Property.")
-        assert "<ul" in draft["html"]
+        assert "Hello Resident," in draft["html"] and '<table style="width:600px">' in draft["html"]
+        assert draft["body"].startswith("Hello Resident,")
         assert draft["subject"] == "The Property | Welcome Home #0735"
     finally:
-        wt.TEMPLATE_PATH.unlink()
+        Path(wt.TEMPLATE_PATH).unlink()
 
 
 def test_without_a_template_the_built_in_text_is_used():

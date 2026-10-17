@@ -421,6 +421,15 @@ def test_connections_panel_shows_each_system_with_an_open_button():
         assert f'data-action="open_site" data-value="{key}"' in page
 
 
+def test_board_top_bar_opens_the_browser_in_live_mode():
+    live = _board(senders={"addresses": [], "names": []}, unknown=[],
+                  connections=[("outlook", "Outlook", "signed_in")])
+    for key, label in (("outlook", "Email"), ("riseio", "RiseIO"), ("xfinity", "Xfinity")):
+        assert f'data-action="open_site" data-value="{key}">{label}</button>' in live
+    demo = _board(senders={"addresses": [], "names": []}, unknown=[])
+    assert 'class="sites' not in demo
+
+
 def test_no_connections_panel_in_demo_or_the_plain_board():
     assert "Connections" not in _text(_board(senders={"addresses": [], "names": []}, unknown=[]))
     assert "Connections" not in _text(_board())
