@@ -61,10 +61,18 @@ def test_sheet_shows_each_resident_and_highlights_what_is_missing():
     assert "data-activate>" in page and "data-activate checked" not in page
 
 
-def test_outside_practice_the_sheet_does_not_offer_to_run():
+def test_on_the_real_systems_the_sheet_offers_a_guided_run():
+    # Live mode: the app fills, and stops at every final button for you.
     page = confirm_sheet.build("1408", ROOMMATES, GAPS, "4:31 PM", practice=False)
     assert "Confirm and prepare" not in page
-    assert "switched on yet" in page
+    assert "Start guided run" in page
+    assert "stops at every Send, Save and Confirm for you to press" in page
+
+
+def test_your_turn_rows_offer_done_and_skip():
+    rows = confirm_sheet.progress_html([("RiseIO", "your_turn", "Press Create New Resident.")])
+    assert 'class="your_turn"' in rows and "Your turn" in rows
+    assert 'data-sheet="guided_done"' in rows and 'data-sheet="guided_skip"' in rows
 
 
 def test_a_guessed_name_split_must_be_confirmed():

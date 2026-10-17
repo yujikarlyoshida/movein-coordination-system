@@ -174,6 +174,10 @@ class TriageDelegate(NSObject):
         # Sign-in state of each tab in the app's browser, for the board.
         self._connections = None
 
+        # A guided run's "your turn": set by the sheet's Done / Skip buttons.
+        self._turn_done = threading.Event()
+        self._turn_skip = threading.Event()
+
         # Explicit width rather than NSVariableStatusItemLength. On macOS 26 the
         # status item is an NSSceneStatusItem, and variable length leaves it zero
         # pixels wide: AppKit cheerfully reports isVisible=True and the correct
@@ -515,6 +519,12 @@ class TriageDelegate(NSObject):
         if action == "prepare":
             self._open_sheet(value)
             return
+        if action == "guided_done":
+            self._turn_done.set()
+            return
+        if action == "guided_skip":
+            self._turn_skip.set()
+            return
         if action == "open_site":
             import browser
 
@@ -580,9 +590,6 @@ class TriageDelegate(NSObject):
 
         if self._running:
             return
-        if not self.practice:
-            self._sheet_js("error", "Automation for the real systems isn't switched on yet.")
-            return
         clean, problem = confirm_sheet.validate(confirm_sheet.form_from_json(value))
         if clean is None:
             self._sheet_js("error", problem)
@@ -607,18 +614,48 @@ class TriageDelegate(NSObject):
             rows[step][1:] = [state, detail]
             show()
 
-        webview = native_window.practice_webview()
         self._running = True
+        self._turn_done.clear()
+        self._turn_skip.clear()
         show()
+
+        if self.practice:
+            webview = native_window.practice_webview()
+
+            def carry_out():
+                return [(r.step, r.ok, r.detail) for r in autofill.Runner(webview).run(job, progress=progress)]
+        else:
+            import browser
+            import guided
+
+            views = {site: browser.view(site) for site in browser.ORDER}
+
+            def take(event):
+                if event.is_set():
+                    event.clear()
+                    return True
+                return False
+
+            hooks = guided.Hooks(
+                views=views,
+                show_tab=lambda site: AppHelper.callAfter(browser.open_tab, site),
+                progress=progress,
+                skipped=lambda: take(self._turn_skip),
+                user_done=lambda: take(self._turn_done),
+            )
+
+            def carry_out():
+                return guided.Guided(hooks).run(job, job.steps)
 
         def work():
             try:
-                results = autofill.Runner(webview).run(job, progress=progress)
-                if all(r.ok for r in results):
+                results = carry_out()
+                if all(ok for _, ok, _ in results):
                     self._done.add(unit)
-                    self._notice = f"Unit {unit} done in practice: every step finished."
+                    self._notice = (f"Unit {unit} done in practice: every step finished." if self.practice
+                                    else f"Unit {unit} done: every step finished, with you pressing the final buttons.")
                 else:
-                    failed = [autofill.STEP_LABELS[r.step] for r in results if not r.ok]
+                    failed = [autofill.STEP_LABELS[step] for step, ok, _ in results if not ok]
                     self._notice = f"Unit {unit}: {', '.join(failed)} stopped. See the sheet for why."
             finally:
                 self._running = False

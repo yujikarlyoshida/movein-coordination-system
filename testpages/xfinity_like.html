@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Mock shaped like Xfinity Communities (tests only)</title></head>
+<body>
+<!-- Test fixture only. Shaped like what the read-only probes found on Xfinity
+     Communities: Prism-style web components with open shadow roots, test ids
+     residents_hero_add_button and resident-contact-details-*, a footer Continue
+     button by test id, an inner native button taking the click, and later
+     screens (unit, dates, review) that were not seen, with Save where Continue
+     was. Fictional, saves nothing. -->
+<div id="page"></div>
+<script>
+  // Minimal Prism-like components: each wraps a native control in a shadow root.
+  class PrismButton extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      const r = this.attachShadow({ mode: 'open' });
+      const b = document.createElement('button');
+      b.textContent = this.textContent.trim();
+      // Like the real one: the host itself ignores clicks; the inner button acts.
+      b.addEventListener('click', () => this.dispatchEvent(new CustomEvent('prism-click', { bubbles: true, composed: true })));
+      r.appendChild(b);
+    }
+  }
+  class PrismInputText extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      const r = this.attachShadow({ mode: 'open' });
+      const i = document.createElement('input');
+      i.type = this.getAttribute('type') || 'text';
+      i.setAttribute('aria-label', this.getAttribute('label') || '');
+      r.appendChild(i);
+    }
+    get value() { return this.shadowRoot.querySelector('input').value; }
+  }
+  class PrismSelect extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      const r = this.attachShadow({ mode: 'open' });
+      const s = document.createElement('select');
+      ['', '0735', '1408', '0611'].forEach(u => { const o = document.createElement('option'); o.value = u; o.textContent = u || 'Choose a unit'; s.appendChild(o); });
+      r.appendChild(s);
+    }
+    get value() { return this.shadowRoot.querySelector('select').value; }
+  }
+  customElements.define('prism-button', PrismButton);
+  customElements.define('prism-input-text', PrismInputText);
+  customElements.define('prism-select', PrismSelect);
+
+  window.__mock = { saved: [] };
+  const page = document.getElementById('page');
+  const state = {};
+  const footer = (label) => `<prism-button data-testid="resident-create-footer-back-button">Back</prism-button>
+    <prism-button data-testid="resident-create-footer-continue-button">${label}</prism-button>`;
+  const screens = {
+    list: () => `<prism-button data-testid="residents_hero_add_button">Add resident</prism-button>`,
+    contact: () => `<prism-input-text label="First name" data-testid="resident-contact-details-first-name"></prism-input-text>
+      <prism-input-text label="Last name" data-testid="resident-contact-details-last-name"></prism-input-text>
+      <prism-input-text label="Email" type="email" data-testid="resident-contact-details-email"></prism-input-text>
+      <prism-input-text label="Phone number" data-testid="resident-contact-details-phone-number"></prism-input-text>` + footer('Continue'),
+    unit: () => `<prism-select label="Unit" data-testid="resident-unit-select"></prism-select>` + footer('Continue'),
+    dates: () => `<prism-input-text label="Move in date" data-testid="resident-move-in-date"></prism-input-text>
+      <prism-input-text label="Move out date" data-testid="resident-move-out-date"></prism-input-text>` + footer('Continue'),
+    review: () => `<prism-text>${[state.first, state.last, state.email, state.phone, state.unit, state.movein].join(' ')}</prism-text>` + footer('Save'),
+  };
+  let at = 'list';
+  const show = name => { at = name; page.innerHTML = screens[name](); };
+  const val = id => { const e = page.querySelector(`[data-testid="${id}"]`); return e ? e.value : ''; };
+  page.addEventListener('prism-click', e => {
+    const id = e.target.getAttribute('data-testid');
+    if (id === 'residents_hero_add_button') return show('contact');
+    if (id !== 'resident-create-footer-continue-button') return;
+    if (at === 'contact') {
+      Object.assign(state, { first: val('resident-contact-details-first-name'), last: val('resident-contact-details-last-name'),
+                             email: val('resident-contact-details-email'), phone: val('resident-contact-details-phone-number') });
+      if (!state.first || !state.last || !state.email || !/^\d{3}-\d{3}-\d{4}$/.test(state.phone)) return;
+      return show('unit');
+    }
+    if (at === 'unit') { state.unit = val('resident-unit-select'); if (!state.unit) return; return show('dates'); }
+    if (at === 'dates') { state.movein = val('resident-move-in-date'); if (!state.movein) return; return show('review'); }
+    if (at === 'review') { window.__mock.saved.push(Object.assign({}, state)); return show('list'); }
+  });
+  show('list');
+</script>
+</body></html>

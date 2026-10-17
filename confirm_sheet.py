@@ -48,6 +48,9 @@ CSS = """
 .progress { list-style: none; padding: 0; margin: 14px 0 0 }
 .progress li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14.5px }
 .progress .st { font-weight: 700 } .progress .st.failed { color: #9b2c1f } .progress .detail { font-size: 12.5px; color: var(--ink-2) }
+.progress li.your_turn { background: var(--lime); border-radius: 12px; padding: 10px 12px }
+.progress li.your_turn .detail { color: var(--ink); font-size: 14px }
+.progress .turn { margin-top: 8px; display: flex; gap: 8px }
 """
 
 _FIELDS = (("first", "First name"), ("last", "Last name"), ("email", "Email"),
@@ -115,9 +118,9 @@ def build(unit: str, residents: list[dict], missing: list, checked_at: str,
         action = '<button class="btn dark" data-sheet="confirm">Confirm and prepare</button>'
         fine = "Practice mode: runs on the practice pages, which save and send nothing."
     else:
-        action = '<button class="btn" data-sheet="cancel">Close</button>'
-        fine = ("Automation for the real systems isn't switched on yet. "
-                "Run practice mode to see this unit done end to end.")
+        action = '<button class="btn dark" data-sheet="confirm">Start guided run</button>'
+        fine = ("Guided: the app fills each system in its browser and stops at every "
+                "Send, Save and Confirm for you to press.")
 
     return (
         f'<div class="sheet" data-unit="{_esc(unit)}">'
@@ -135,13 +138,20 @@ def build(unit: str, residents: list[dict], missing: list, checked_at: str,
 
 
 def progress_html(rows: list[tuple[str, str, str]]) -> str:
-    """[(label, state, detail)] as the sheet's live progress list."""
-    words = {"waiting": "Waiting", "running": "Working…", "done": "Done", "failed": "Stopped"}
-    return "".join(
-        f'<li><span>{_esc(label)}<br><span class="detail">{_esc(detail)}</span></span>'
-        f'<span class="st {state}">{words.get(state, state)}</span></li>'
-        for label, state, detail in rows
-    )
+    """[(label, state, detail)] as the sheet's live progress list. A "your_turn"
+    row carries the instruction and Done / Skip this step buttons."""
+    words = {"waiting": "Waiting", "running": "Working…", "done": "Done", "failed": "Stopped",
+             "your_turn": "Your turn"}
+    out = []
+    for label, state, detail in rows:
+        turn = ""
+        if state == "your_turn":
+            turn = ('<div class="turn">'
+                    '<button class="btn small dark" data-sheet="guided_done">Done</button> '
+                    '<button class="btn small" data-sheet="guided_skip">Skip this step</button></div>')
+        out.append(f'<li class="{state}"><span>{_esc(label)}<br><span class="detail">{_esc(detail)}</span>{turn}</span>'
+                   f'<span class="st {state}">{words.get(state, state)}</span></li>')
+    return "".join(out)
 
 
 def validate(form: dict) -> tuple[dict | None, str]:
@@ -234,6 +244,11 @@ SCRIPT = r"""
     if (!b) return;
     e.preventDefault();
     if (b.dataset.sheet === 'cancel') { close(); return; }
+    if (b.dataset.sheet === 'guided_done' || b.dataset.sheet === 'guided_skip') {
+      b.disabled = true;
+      bridge.postMessage({ action: b.dataset.sheet, value: '' });
+      return;
+    }
     var steps = check(); if (!steps) return;
     var sheet = document.querySelector('.sheet'), residents = {};
     document.querySelectorAll('.sheet input[data-r]').forEach(function (inp) {

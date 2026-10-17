@@ -33,7 +33,7 @@ _handler = None
 
 # The only things a board page may ask for.
 BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing",
-                 "prepare", "confirm", "sheet_closed", "open_site"}
+                 "prepare", "confirm", "sheet_closed", "open_site", "guided_done", "guided_skip"}
 
 # The practice systems window: where the runner fills the practice pages, in
 # view, so a test run can be watched. Separate from Outlook's window and from
