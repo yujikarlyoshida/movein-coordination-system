@@ -22,6 +22,7 @@ import re
 import urllib.parse
 from datetime import datetime
 
+import confirm_sheet
 import triggers
 from models import Result, Verdict
 
@@ -103,12 +104,14 @@ tr:last-child td { border-bottom: 0 }
 .pop .unitgap { border-top: 1px solid var(--line); padding: 12px 0 }
 .pop .unitgap b { font-size: 17px }
 .pop .actions { display: flex; justify-content: flex-end; margin-top: 16px }
+.p-prepare { background: var(--lime); color: var(--ink); border: 1.5px solid var(--ink); cursor: pointer; margin-left: 6px }
+.p-done { background: var(--peri); color: var(--ink) }
 @media (max-width: 720px) {
   body { padding: 24px 16px 40px } h1 { font-size: 30px }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)) }
   th, td { padding: 12px 12px }
 }
-"""
+""" + confirm_sheet.CSS
 
 _STATUS = {
     Verdict.NEEDS_OUTREACH: ("Needs outreach", "p-needs"),
@@ -194,8 +197,10 @@ def missing_keys(result: Result) -> set[str]:
     return {f"{result.unit}:{p}:{f}" for p, fields in result.missing for f in fields}
 
 
-def _row(result: Result) -> str:
+def _row(result: Result, interactive: bool = False, done: bool = False) -> str:
     label, cls = _STATUS[result.verdict]
+    if done:
+        label, cls = "Done", "p-done"
     check, notes = _checks(result)
     gaps = _gap_lines(result)
     if gaps:
@@ -210,6 +215,9 @@ def _row(result: Result) -> str:
         f'<div class="gap">{_esc(what)}. <span class="blocks">{_esc(blocks)}</span></div>'
         for what, blocks in gaps
     )
+    prepare = (f'<span class="pill p-prepare app-only" data-prepare="{_esc(result.unit)}" '
+               'title="Review and carry out this unit">Prepare</span>'
+               if interactive and not done and result.verdict is Verdict.NEEDS_OUTREACH else "")
     missing_pill = ('<br><span class="pill p-missing" data-open-missing="1" '
                     'title="See what is missing">Missing info</span>') if gaps else ""
     return (
@@ -217,7 +225,7 @@ def _row(result: Result) -> str:
         f'<td class="unit">{link}</td>'
         f"<td>{_esc(_move_in(result.move_in))}</td>"
         f'<td><div class="check">{_esc(check)}</div>{note_html}</td>'
-        f'<td><span class="pill {cls}">{_esc(label)}</span>{missing_pill}</td>'
+        f'<td><span class="pill {cls}">{_esc(label)}</span>{prepare}{missing_pill}</td>'
         "</tr>"
     )
 
@@ -231,6 +239,30 @@ def _headline(needs: int, unclear: int) -> str:
     if unclear:
         return f'{unclear} lease{"s" if unclear != 1 else ""} <span class="mark">can\'t be read</span>'
     return 'Nothing <span class="mark">needs you</span> right now'
+
+
+_CONN = {
+    "signed_in": ("Signed in", "p-handled"),
+    "signed_out": ("Sign in needed", "p-unclear"),
+    "loading": ("Checking", "p-skipped"),
+    "not_open": ("Not open yet", "p-skipped"),
+}
+
+
+def _connections_panel(connections: list) -> str:
+    """Each system's sign-in state, with a button to its tab in the app's browser."""
+    rows = "".join(
+        f'<div class="item"><span><b>{_esc(label)}</b></span><span>'
+        f'<span class="pill {_CONN.get(state, _CONN["loading"])[1]}">{_CONN.get(state, _CONN["loading"])[0]}</span> '
+        f'<button class="btn small app-only" data-action="open_site" data-value="{_esc(key)}">Open</button></span></div>'
+        for key, label, state in connections
+    )
+    return (
+        '<div class="panel"><h2>Connections</h2>'
+        '<p class="sub">Sign in to each system in the app\'s own browser. '
+        "The app never sees your passwords.</p>"
+        f'<div class="seen" style="border:0;padding:0;margin:0">{rows}</div></div>'
+    )
 
 
 def _senders_panel(senders: dict, unknown: list) -> str:
@@ -322,7 +354,8 @@ def _missing_popup(results: list[Result], acknowledged: set[str]) -> str:
 
 def render(results: list[Result], operator: str = "", status: str = "",
            senders: dict | None = None, unknown: list | None = None, notice: str = "",
-           acknowledged: set[str] | None = None) -> str:
+           acknowledged: set[str] | None = None, done_units: set[str] | None = None,
+           connections: list | None = None) -> str:
     """
     The whole board as one HTML page.
 
@@ -331,12 +364,16 @@ def render(results: list[Result], operator: str = "", status: str = "",
     panel, with `unknown` [(sender, threads)] as one-click suggestions; the
     in-app board passes them, the plain HTML file from the CLI does not.
     `notice` is a one-line message at the top, such as "Added the address".
+    `done_units` are units carried out this session; they show as Done.
+    `connections` [(key, label, state)] adds the sign-in panel for the app's
+    browser (live mode only).
     `acknowledged` holds missing-field keys the user has already seen (see
     missing_keys); the missing-info pop-up opens by itself only for new ones.
     `status` is the watching line for the top right ("Watching Move ins, last
     check 4:31 PM"); without it the board says when it was generated.
     """
     by = lambda v: [r for r in results if r.verdict is v]  # noqa: E731
+    interactive = senders is not None
     needs, unclear = by(Verdict.NEEDS_OUTREACH), by(Verdict.UNCLEAR)
     handled, skipped = by(Verdict.HANDLED), by(Verdict.SKIPPED_CORPORATE)
 
@@ -362,19 +399,24 @@ def render(results: list[Result], operator: str = "", status: str = "",
             '<div class="table"><table>'
             "<thead><tr><th style=\"width:14%\">Unit</th><th style=\"width:16%\">Move-in</th>"
             "<th>Checks</th><th style=\"width:20%\">Status</th></tr></thead><tbody>"
-            + "".join(_row(r) for r in order)
+            + "".join(_row(r, interactive, r.unit in (done_units or set())) for r in order)
             + "</tbody></table></div>"
         )
     else:
         table = ('<div class="table"><div class="empty">No move-in leases in the window yet. '
                  "The board fills in after the first check.</div></div>")
 
-    interactive = senders is not None
     run_button = ('<button class="btn dark app-only" data-action="run">Run check</button>'
                   if interactive else "")
     notice_html = f'<div class="notice">{_esc(notice)}</div>' if notice else ""
     panel = _senders_panel(senders, unknown or []) if interactive else ""
+    if interactive and connections:
+        panel = _connections_panel(connections) + panel
     popup = _missing_popup(results, acknowledged or set()) if interactive else ""
+    # Empty on disk: the sheet's resident details are injected from memory when
+    # it opens, so they never reach this file.
+    sheet_host = ('<div class="veil" id="sheetveil"><div class="pop" role="dialog" '
+                  'aria-label="Prepare unit"><div id="sheet-host"></div></div></div>') if interactive else ""
 
     lede = ("Checked against every reply in the thread before anything is suggested. "
             "Read-only: nothing is sent, saved or changed in Outlook.")
@@ -398,12 +440,14 @@ def render(results: list[Result], operator: str = "", status: str = "",
 {table}
 {panel}
 {popup}
+{sheet_host}
 <div class="foot">
 Units and statuses only. Residents' names, email addresses and phone numbers stay in Outlook.
 Select a unit to search Outlook for its thread.
 </div>
 </div>
 {_SCRIPT if interactive else ""}
+{"<script>" + confirm_sheet.SCRIPT + "</script>" if interactive else ""}
 </body>
 </html>
 """

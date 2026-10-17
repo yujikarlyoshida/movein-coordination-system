@@ -32,7 +32,13 @@ _on_action = None
 _handler = None
 
 # The only things a board page may ask for.
-BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing"}
+BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing",
+                 "prepare", "confirm", "sheet_closed", "open_site"}
+
+# The practice systems window: where the runner fills the practice pages, in
+# view, so a test run can be watched. Separate from Outlook's window and from
+# the board; its own throwaway website data.
+_practice_window = None
 
 
 def _make_delegate():
@@ -71,7 +77,12 @@ def _message_handler():
                     return
                 body = message.body()
                 action = str(body.get("action", "") or "")
-                value = str(body.get("value", "") or "")[:200]
+                # Bounded: a sender or unit is short; a confirmed sheet (several
+                # residents' details as JSON) is longer, but never this long.
+                limit = 20000 if action == "confirm" else 200
+                value = str(body.get("value", "") or "")
+                if len(value) > limit:
+                    return
             except Exception:
                 return
             if action in BOARD_ACTIONS and _on_action is not None:
@@ -175,6 +186,51 @@ def _reload(html_path: str) -> None:
 
     webview = _window.contentView()
     webview.loadFileURL_allowingReadAccessToURL_(file_url, directory_url)
+
+
+def run_board_js(source: str) -> None:
+    """Run a script in the open board (main thread). Used to show the sheet and
+    its progress without writing resident details into the board file."""
+    if _window is not None:
+        _window.contentView().evaluateJavaScript_completionHandler_(source, lambda *_: None)
+
+
+def practice_webview():
+    """Open (or re-focus) the practice systems window; returns its WKWebView."""
+    global _practice_window
+
+    from AppKit import (
+        NSApp,
+        NSBackingStoreBuffered,
+        NSMakeRect,
+        NSViewHeightSizable,
+        NSViewWidthSizable,
+        NSWindow,
+        NSWindowStyleMaskClosable,
+        NSWindowStyleMaskMiniaturizable,
+        NSWindowStyleMaskResizable,
+        NSWindowStyleMaskTitled,
+    )
+    from WebKit import WKWebsiteDataStore, WKWebView, WKWebViewConfiguration
+
+    if _practice_window is None:
+        frame = NSMakeRect(0, 0, 900, 760)
+        conf = WKWebViewConfiguration.alloc().init()
+        conf.setWebsiteDataStore_(WKWebsiteDataStore.nonPersistentDataStore())
+        view = WKWebView.alloc().initWithFrame_configuration_(frame, conf)
+        view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
+        style = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                 | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+        win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            frame, style, NSBackingStoreBuffered, False)
+        win.setTitle_("Practice systems. Nothing here is saved or sent")
+        win.setReleasedWhenClosed_(False)
+        win.setContentView_(view)
+        win.setFrameAutosaveName_("MoveInTriagePractice")
+        _practice_window = win
+    _practice_window.makeKeyAndOrderFront_(None)
+    NSApp.activateIgnoringOtherApps_(True)
+    return _practice_window.contentView()
 
 
 def refresh_if_open(html_path: str) -> None:

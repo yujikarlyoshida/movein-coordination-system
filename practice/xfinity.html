@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Practice internet portal</title>
+<style>
+  body { margin: 0; font: 15px/1.5 -apple-system, system-ui, sans-serif; background: #f4f5f7; color: #1d2433 }
+  .bar { background: #2a2f45; color: #fff; padding: 10px 18px; font-weight: 600 }
+  .bar small { font-weight: 400; opacity: .8; margin-left: 10px }
+  .card { max-width: 620px; margin: 28px auto; background: #fff; border-radius: 10px; padding: 22px 26px; box-shadow: 0 1px 3px rgba(0,0,0,.08) }
+  h2 { margin: 0 0 4px; font-size: 20px } .step { color: #5b6478; font-size: 13px; margin-bottom: 16px }
+  .field { margin-bottom: 12px } .field label { display: block; font-size: 13px; color: #5b6478; margin-bottom: 4px }
+  .field input, .field select { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid #c8cdd8; border-radius: 6px }
+  .foot { display: flex; justify-content: space-between; margin-top: 18px }
+  button { font: inherit; padding: 8px 20px; border-radius: 6px; border: 1px solid #c8cdd8; background: #fff; cursor: pointer; min-width: 110px }
+  button.primary { background: #1f69ff; border-color: #1f69ff; color: #fff }
+  .error { color: #b3261e; font-size: 13px; margin-top: 8px; min-height: 18px }
+  .review div { padding: 4px 0; border-bottom: 1px solid #eef0f4 }
+  section { display: none } section.on { display: block }
+</style></head>
+<body>
+<div class="bar">Practice internet portal <small>Not Xfinity. Nothing here is saved anywhere.</small></div>
+<div class="card">
+  <h2>Add resident</h2><div class="step" id="stepname">Step 1 of 4: contact details</div>
+
+  <section id="s1" class="on">
+    <div class="field"><label for="first">First name</label><input id="first"></div>
+    <div class="field"><label for="last">Last name</label><input id="last"></div>
+    <div class="field"><label for="email">Email</label><input id="email"></div>
+    <div class="field"><label for="phone">Phone</label><input id="phone"></div>
+  </section>
+  <section id="s2">
+    <div class="field"><label for="unit">Select unit</label>
+      <select id="unit"><option value="">Choose a unit</option></select></div>
+  </section>
+  <section id="s3">
+    <div class="field"><label for="movein">Move in date</label><input id="movein" placeholder="MM/DD/YYYY"></div>
+    <div class="field"><label for="moveout">Move out date (optional)</label><input id="moveout" placeholder="MM/DD/YYYY"></div>
+  </section>
+  <section id="s4"><div class="review" id="review"></div></section>
+  <section id="s5"><p role="status" id="saved"><b>Resident added.</b> Practice only.</p></section>
+
+  <div class="error" id="err"></div>
+  <!-- As on the real wizard: the final Save sits exactly where Continue was. -->
+  <div class="foot" id="foot"><button id="back">Back</button><button class="primary" id="next">Continue</button></div>
+</div>
+<script>
+  var units = ['0701','0702','0703','0704','0705','0706','0707','0708','0709','0710','0711','0712',
+               '0735','0736','0737','0738','0739','0740','0741','0742','0743','0744','0745','0746',
+               '0901','1204','1408','1520','0500','0512','0611','0640','0777'];
+  var sel = document.getElementById('unit');
+  units.forEach(function (u) { var o = document.createElement('option'); o.value = u; o.textContent = 'Unit ' + u; sel.appendChild(o); });
+  window.__practice = { system: 'xfinity', saved: null };
+  var step = 1, names = ['', 'contact details', 'select unit', 'move in and out dates', 'review'];
+  var v = function (id) { return document.getElementById(id).value.trim(); };
+  function show(n) {
+    step = n;
+    for (var i = 1; i <= 5; i++) document.getElementById('s' + i).classList.toggle('on', i === n);
+    document.getElementById('stepname').textContent = n <= 4 ? 'Step ' + n + ' of 4: ' + names[n] : 'Done';
+    document.getElementById('next').textContent = n === 4 ? 'Save' : 'Continue';
+    document.getElementById('foot').style.display = n === 5 ? 'none' : 'flex';
+    document.getElementById('err').textContent = '';
+    if (n === 4) document.getElementById('review').innerHTML =
+      ['First name: ' + v('first'), 'Last name: ' + v('last'), 'Email: ' + v('email'), 'Phone: ' + v('phone'),
+       'Unit: ' + v('unit'), 'Move in: ' + v('movein')].map(function (t) { return '<div>' + t.replace(/</g, '&lt;') + '</div>'; }).join('');
+  }
+  document.getElementById('back').addEventListener('click', function () { if (step > 1 && step < 5) show(step - 1); });
+  document.getElementById('next').addEventListener('click', function () {
+    var err = document.getElementById('err');
+    if (step === 1) {
+      if (!v('first') || !v('last') || !v('email') || !v('phone')) { err.textContent = 'First name, last name, email and phone are all required.'; return; }
+      if (!/^\d{3}-\d{3}-\d{4}$/.test(v('phone'))) { err.textContent = 'Enter the phone as 555-555-5555.'; return; }
+    }
+    if (step === 2 && !v('unit')) { err.textContent = 'Choose a unit.'; return; }
+    if (step === 3 && !/^\d{2}\/\d{2}\/\d{4}$/.test(v('movein'))) { err.textContent = 'Enter the move in date as MM/DD/YYYY.'; return; }
+    if (step === 4) {
+      window.__practice.saved = { first: v('first'), last: v('last'), email: v('email'), phone: v('phone'),
+                                  unit: v('unit'), movein: v('movein'), moveout: v('moveout') };
+      show(5); return;
+    }
+    show(step + 1);
+  });
+</script>
+</body></html>

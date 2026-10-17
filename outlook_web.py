@@ -57,19 +57,25 @@ MAX_OPENS_PER_PASS = 15
 EXTRACT_JS = (pathlib.Path(__file__).resolve().parent / "owa_extract.js").read_text(encoding="utf-8")
 
 # Held at module level: AppKit does not retain Python-side objects for us.
-_window = None
-_webview = None
 _delegates: list = []
+_ui_delegate = None
 
 
 def _make_ui_delegate():
     """
-    Sign-in pages sometimes open a new window; keep those in this one.
+    Sign-in pages sometimes open a new window; keep those in the same tab.
 
     Outlook's own pop-outs (a thread opened in a new window) start as a blank
     page and are filled in by script. Loading that blank page here would replace
-    Outlook itself, so pop-outs are refused: everything stays in the main view.
+    Outlook itself, so pop-outs are refused: everything stays in the tab.
+
+    One shared instance: an Objective-C class can only be registered once per
+    process, and defining it again raised "overriding existing class".
     """
+    global _ui_delegate
+    if _ui_delegate is not None:
+        return _ui_delegate
+
     from AppKit import NSObject
 
     class UIDelegate(NSObject):
@@ -82,76 +88,21 @@ def _make_ui_delegate():
                 webview.loadRequest_(action.request())
             return None
 
-    return UIDelegate.alloc().init()
+    _ui_delegate = UIDelegate.alloc().init()
+    return _ui_delegate
 
 
 def open_window(url: str = OUTLOOK_URL, show: bool = True):
     """
-    Open (or re-focus) the Outlook window. Returns the WKWebView.
+    The Outlook tab of the app's browser (browser.py). Returns its WKWebView.
 
-    With show=False the window is created and Outlook loads, but nothing comes
-    to the front: the menu bar app starts this way and only shows the window
+    With show=False the browser is created and Outlook loads, but nothing comes
+    to the front: the menu bar app starts this way and only shows the browser
     when a sign-in is needed, or when asked from the menu.
     """
-    global _window, _webview
+    import browser
 
-    from AppKit import (
-        NSApp,
-        NSBackingStoreBuffered,
-        NSMakeRect,
-        NSViewHeightSizable,
-        NSViewWidthSizable,
-        NSWindow,
-        NSWindowStyleMaskClosable,
-        NSWindowStyleMaskMiniaturizable,
-        NSWindowStyleMaskResizable,
-        NSWindowStyleMaskTitled,
-    )
-    from Foundation import NSURL, NSURLRequest
-    from WebKit import WKWebsiteDataStore, WKWebView, WKWebViewConfiguration
-
-    if _window is not None:
-        if show:
-            _window.makeKeyAndOrderFront_(None)
-            NSApp.activateIgnoringOtherApps_(True)
-        return _webview
-
-    config = WKWebViewConfiguration.alloc().init()
-    # Persistent store: the sign-in survives closing the window and restarting
-    # the app, until Outlook's own session policy ends it.
-    config.setWebsiteDataStore_(WKWebsiteDataStore.defaultDataStore())
-    config.setApplicationNameForUserAgent_(APP_UA_SUFFIX)
-
-    frame = NSMakeRect(0, 0, 1200, 820)
-    webview = WKWebView.alloc().initWithFrame_configuration_(frame, config)
-    webview.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
-
-    ui = _make_ui_delegate()
-    _delegates.append(ui)
-    webview.setUIDelegate_(ui)
-
-    style = (
-        NSWindowStyleMaskTitled
-        | NSWindowStyleMaskClosable
-        | NSWindowStyleMaskMiniaturizable
-        | NSWindowStyleMaskResizable
-    )
-    window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        frame, style, NSBackingStoreBuffered, False
-    )
-    window.setTitle_("Outlook for Move-in triage")
-    # Closing only hides it: the session and the reader keep running.
-    window.setReleasedWhenClosed_(False)
-    window.setContentView_(webview)
-    window.center()
-    if show:
-        window.makeKeyAndOrderFront_(None)
-        NSApp.activateIgnoringOtherApps_(True)
-
-    webview.loadRequest_(NSURLRequest.requestWithURL_(NSURL.URLWithString_(url)))
-
-    _window, _webview = window, webview
-    return webview
+    return browser.open_tab("outlook") if show else browser.view("outlook")
 
 
 # ---------------------------------------------------------------------------

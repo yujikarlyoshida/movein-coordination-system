@@ -7,6 +7,9 @@ in the menu bar, notifies when a NEW unit needs outreach, and opens the board.
     python menubar.py            live: Outlook on the web, in the app's window
     python menubar.py --demo     sample data, no sign-in
     python menubar.py --board    also open the board window at launch
+    python menubar.py --browser  also open the app's browser (RiseIO tab) to sign in
+    python menubar.py --practice sample data plus the practice systems: Prepare
+                                 a unit and watch it carried out end to end
 
 What appears in the menu is decided in menu_model.py (plain data, tested);
 this file only draws it and runs the worker.
@@ -57,7 +60,6 @@ from AppKit import (
 from Foundation import NSTimer
 from PyObjCTools import AppHelper
 
-import app as pipeline
 import board
 import config
 import menu_model
@@ -159,6 +161,18 @@ class TriageDelegate(NSObject):
         # Got it on, and those already notified about.
         self._acked = set()
         self._missing_seen = set()
+
+        # Practice mode, and what the confirmation sheet works from. Plans hold
+        # resident details for the sheet; they live in memory only.
+        self.practice = False
+        self._units = {}
+        self._plans = {}
+        self._done = set()
+        self._sheet_open = False
+        self._running = False
+
+        # Sign-in state of each tab in the app's browser, for the board.
+        self._connections = None
 
         # Explicit width rather than NSVariableStatusItemLength. On macOS 26 the
         # status item is an NSSceneStatusItem, and variable length leaves it zero
@@ -265,18 +279,50 @@ class TriageDelegate(NSObject):
             self._board_args = (results, status, unknown or [])
             page = board.render(results, status=status, senders=senders.load(),
                                 unknown=unknown or [], notice=self._notice,
-                                acknowledged=self._acked)
+                                acknowledged=self._acked, done_units=self._done,
+                                connections=self._connections)
             fd = os.open(self.board_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(page)
             os.chmod(self.board_path, 0o600)
 
     @objc.python_method
+    def _remember(self, results, plans):
+        """Keep each unit's result and prepared plan for the confirmation sheet."""
+        self._units = {r.unit: r for r in results}
+        self._plans = {p.unit: p for p in plans}
+
+    @objc.python_method
+    def _check_connections(self, outlook_state):
+        """Each tab's sign-in state, from the page address only."""
+        import browser
+
+        states = []
+        for key in browser.ORDER:
+            if key == "outlook" and outlook_state == "signed_out":
+                state = "signed_out"
+            else:
+                try:
+                    state = browser.sign_in_state(key)
+                except Exception:  # noqa: BLE001 -- a slow tab is "checking"
+                    state = "loading"
+            states.append((key, browser.SITES[key][0], state))
+        self._connections = states
+
+    @objc.python_method
     def _demo_loop(self):
+        import rules
+        import sample_data
+        import staging
+
+        label = ("Practice mode: sample mailbox, practice systems" if self.practice
+                 else "Demo mailbox, no sign-in")
         while True:
             try:
-                results, _ = pipeline.collect(use_demo=True)
-                self._write_board(results, status="Demo mailbox, no sign-in")
+                with sample_data.fixture_config():
+                    results = rules.evaluate(sample_data.MESSAGES)
+                    self._remember(results, staging.collect(sample_data.MESSAGES))
+                self._write_board(results, status=label)
                 snap = menu_model.Snapshot(results=results, fetched_at=datetime.now(),
                                            state="watching", demo=True)
             except Exception as exc:
@@ -322,7 +368,7 @@ class TriageDelegate(NSObject):
                     results = rules.evaluate(messages)
                     # Records the history log and prepares plans for the
                     # confirmation sheet. Prepares, never sends.
-                    staging.collect(messages)
+                    self._remember(results, staging.collect(messages))
                     unknown = outlook_web.unknown_lease_senders(messages)
                     stamp = datetime.now().strftime("%I:%M %p").lstrip("0")
                     self._notice = ""
@@ -334,6 +380,10 @@ class TriageDelegate(NSObject):
                     )
                     last = snap
                     delay = 60 if snap.more_to_read else config.REFRESH_INTERVAL_SECONDS
+            self._check_connections(snap.state)
+            if snap.state != "watching":
+                # Keep the board's Connections panel current while not reading.
+                self._write_board(*self._board_args)
             self._publish(snap)
             # "Check now", "Resume" and a fresh sign-in end the wait early.
             if self._wake.wait(timeout=delay):
@@ -370,10 +420,12 @@ class TriageDelegate(NSObject):
         elif snap.state == "watching":
             self._shown_for_sign_in = False
 
-        try:
-            native_window.refresh_if_open(self.board_path)
-        except Exception:
-            traceback.print_exc()
+        # Never reload the board under an open sheet: it would vanish mid-review.
+        if not self._sheet_open:
+            try:
+                native_window.refresh_if_open(self.board_path)
+            except Exception:
+                traceback.print_exc()
 
     @objc.python_method
     def _notify_new(self, snap):
@@ -432,9 +484,9 @@ class TriageDelegate(NSObject):
 
     @objc.python_method
     def _show_outlook(self):
-        import outlook_web
+        import browser
 
-        outlook_web.open_window(show=True)
+        browser.open_tab("outlook")
 
     # -- actions ------------------------------------------------------------
 
@@ -460,6 +512,24 @@ class TriageDelegate(NSObject):
             self._acked |= {k for k in value.split(",") if k}
             self._write_board(*self._board_args)
             return
+        if action == "prepare":
+            self._open_sheet(value)
+            return
+        if action == "open_site":
+            import browser
+
+            if value in browser.SITES:
+                browser.open_tab(value)
+                self._wake.set()     # check sign-in states again soon
+            return
+        if action == "confirm":
+            self._confirm(value)
+            return
+        if action == "sheet_closed":
+            self._sheet_open = False
+            self._write_board(*self._board_args)
+            native_window.refresh_if_open(self.board_path)
+            return
         if action == "add_sender":
             changed, self._notice = senders.add(value)
         elif action == "remove_sender":
@@ -469,9 +539,92 @@ class TriageDelegate(NSObject):
         if self.demo and changed:
             self._notice = "Demo mode: the sample mailbox keeps its own senders, so this change isn't used."
         self._write_board(*self._board_args)
-        native_window.refresh_if_open(self.board_path)
+        if not self._sheet_open:
+            native_window.refresh_if_open(self.board_path)
         if changed:
             self._wake.set()
+
+    # -- the confirmation sheet ---------------------------------------------
+
+    @objc.python_method
+    def _sheet_js(self, call, *args):
+        import json
+
+        native_window.run_board_js(f"window.__sheet.{call}({', '.join(json.dumps(a) for a in args)})")
+
+    @objc.python_method
+    def _open_sheet(self, unit):
+        import confirm_sheet
+
+        result, plan = self._units.get(unit), self._plans.get(unit)
+        if result is None or plan is None:
+            return
+        portal = next((a.payload for a in plan.actions if a.kind == "internet_portal"), {})
+        residents = [{"first": r["first_name"], "last": r["last_name"], "email": r["email"],
+                      "phone": r["phone"], "move_in": r["move_in"]} for r in portal.get("residents", [])]
+        when = self.snapshot.fetched_at
+        checked = when.strftime("%I:%M %p").lstrip("0") if when else "the last check"
+        html = confirm_sheet.build(unit, residents, result.missing, checked, self.practice)
+        self._sheet_open = True
+        self._sheet_js("open", html)
+
+    @objc.python_method
+    def _confirm(self, value):
+        """The one click. Check the sheet's values again, then carry out every
+        ticked step on the practice systems, reporting each step live."""
+        import types
+
+        import autofill
+        import confirm_sheet
+        import staging
+
+        if self._running:
+            return
+        if not self.practice:
+            self._sheet_js("error", "Automation for the real systems isn't switched on yet.")
+            return
+        clean, problem = confirm_sheet.validate(confirm_sheet.form_from_json(value))
+        if clean is None:
+            self._sheet_js("error", problem)
+            return
+
+        unit = clean["unit"]
+        people = [types.SimpleNamespace(first_name=r["first"], email=r["email"]) for r in clean["residents"]]
+        subject, body, recipients, _ = staging.compose_welcome(unit, people)
+        job = autofill.Job(unit=unit, residents=clean["residents"], steps=clean["steps"],
+                           welcome={"to": recipients, "cc": getattr(config, "WELCOME_CC", ""),
+                                    "subject": subject, "body": body},
+                           send_activation_email=clean["send_activation_email"])
+        rows = {s: [autofill.STEP_LABELS[s], "waiting", ""] for s in job.steps}
+
+        def show(finished=False):
+            import confirm_sheet as cs
+
+            html = cs.progress_html([tuple(rows[s]) for s in job.steps])
+            AppHelper.callAfter(lambda: self._sheet_js("progress", html, finished))
+
+        def progress(step, state, detail):
+            rows[step][1:] = [state, detail]
+            show()
+
+        webview = native_window.practice_webview()
+        self._running = True
+        show()
+
+        def work():
+            try:
+                results = autofill.Runner(webview).run(job, progress=progress)
+                if all(r.ok for r in results):
+                    self._done.add(unit)
+                    self._notice = f"Unit {unit} done in practice: every step finished."
+                else:
+                    failed = [autofill.STEP_LABELS[r.step] for r in results if not r.ok]
+                    self._notice = f"Unit {unit}: {', '.join(failed)} stopped. See the sheet for why."
+            finally:
+                self._running = False
+                show(finished=True)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def checkNow_(self, _sender):
         self._set_status_title("Move-ins…")
@@ -503,7 +656,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Move-in triage menu bar app")
     parser.add_argument("--demo", action="store_true", help="use sample data, no sign-in")
     parser.add_argument("--board", action="store_true", help="also open the board window at launch")
+    parser.add_argument("--browser", metavar="TAB", nargs="?", const="riseio",
+                        help="also open the app's browser at launch, on TAB (outlook, riseio, xfinity)")
+    parser.add_argument("--probe", metavar="DIR",
+                        help="development: evaluate structure-only JS files dropped into DIR/<site>/")
+    parser.add_argument("--practice", action="store_true",
+                        help="sample data and practice systems: a full click-and-done test run")
     args = parser.parse_args()
+    if args.practice:
+        args.demo = True
+        args.board = True
 
     import senders
 
@@ -527,6 +689,7 @@ def main() -> None:
     nsapp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
 
     delegate = TriageDelegate.alloc().initWithDemo_(args.demo)
+    delegate.practice = bool(args.practice)
     nsapp.setDelegate_(delegate)
 
     if not args.demo:
@@ -536,10 +699,23 @@ def main() -> None:
         # itself only when a sign-in is needed.
         delegate.webview = outlook_web.open_window(show=False)
 
+        if args.probe:
+            import browser
+
+            for name in browser.ORDER:
+                probe = outlook_web._Probe(browser.view(name), os.path.join(args.probe, name))
+                outlook_web._delegates.append(probe)
+                NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, lambda _t, p=probe: p.tick())
+
     delegate.startWorker()
 
     if args.board:
         delegate.openBoard_(None)
+
+    if args.browser and not args.demo:
+        import browser
+
+        browser.open_tab(args.browser if args.browser in browser.SITES else "riseio")
 
     # Main-thread poll for finished passes. One second is responsive without
     # being busy. Retained so it is not collected mid-run.

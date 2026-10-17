@@ -165,7 +165,7 @@ def menu_rows(snap: Snapshot) -> list:
     if not snap.demo:
         rows.append(("Check now", CHECK_NOW, 0))
         rows.append(("Resume watching" if snap.state == "paused" else "Pause watching", TOGGLE_PAUSE, 0))
-        rows.append(("Outlook window", OPEN_OUTLOOK, 0))
+        rows.append(("Open browser", OPEN_OUTLOOK, 0))
     else:
         rows.append(("Check now", CHECK_NOW, 0))
     rows.append(None)

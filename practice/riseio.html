@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Practice resident app</title>
+<style>
+  body { margin: 0; font: 15px/1.5 -apple-system, system-ui, sans-serif; background: #f6f7fb; color: #22253a }
+  .bar { background: #4b3fa8; color: #fff; padding: 10px 18px; font-weight: 600 }
+  .bar small { font-weight: 400; opacity: .8; margin-left: 10px }
+  .card { max-width: 620px; margin: 28px auto; background: #fff; border-radius: 10px; padding: 22px 26px; box-shadow: 0 1px 3px rgba(0,0,0,.08) }
+  h2 { margin: 0 0 14px; font-size: 20px }
+  .field { margin-bottom: 12px } .field label { display: block; font-size: 13px; color: #5d6280; margin-bottom: 4px }
+  .field input, .field select, .field textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid #cfd2e3; border-radius: 6px }
+  .row3 { display: flex; gap: 8px } .row3 select { flex: 1 }
+  .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 }
+  button { font: inherit; padding: 8px 20px; border-radius: 6px; border: 1px solid #cfd2e3; background: #fff; cursor: pointer }
+  button.primary { background: #4b3fa8; border-color: #4b3fa8; color: #fff }
+  .error { color: #b3261e; font-size: 13px; min-height: 18px }
+  .veil { position: fixed; inset: 0; background: rgba(20,20,40,.35); display: none; align-items: center; justify-content: center }
+  .veil.on { display: flex } .dialog { background: #fff; border-radius: 10px; padding: 22px 26px; width: 420px }
+  .status { display: inline-block; background: #e9e6ff; color: #3a2f8f; border-radius: 999px; padding: 2px 10px; font-size: 13px }
+  #profile { display: none }
+</style></head>
+<body>
+<div class="bar">Practice resident app <small>Not RiseIO. Nothing here is saved or emailed.</small></div>
+<div class="card" id="form">
+  <h2>Add resident</h2>
+  <div class="field"><label for="first">First name</label><input id="first"></div>
+  <div class="field"><label for="last">Last name</label><input id="last"></div>
+  <div class="field"><label for="email">Email</label><input id="email"></div>
+  <div class="field"><label for="phone">Phone (optional)</label><input id="phone"></div>
+  <div class="field"><label>Birthday</label>
+    <div class="row3"><select id="bday" aria-label="Day"></select><select id="bmonth" aria-label="Month"></select><select id="byear" aria-label="Year"></select></div></div>
+  <div class="field"><label for="notes">Notes</label><textarea id="notes" rows="2"></textarea></div>
+  <!-- As on the real form: ticked by default, and it emails the resident. -->
+  <label class="check"><input type="checkbox" id="activate" checked> Send account activation email</label>
+  <div class="error" id="err"></div>
+  <button class="primary" id="create">Create New Resident</button>
+</div>
+
+<div class="card" id="profile"><h2 id="pname"></h2><p>Unit <b id="punit"></b> <span class="status" id="pstatus"></span> move-in <b id="pdate"></b></p>
+  <p id="pact"></p></div>
+
+<div class="veil" id="veil"><div class="dialog" role="dialog" aria-label="Move into Unit">
+  <h2>Move into Unit</h2>
+  <div class="field"><label for="munit">Unit</label><select id="munit"><option value="">Choose a unit</option></select></div>
+  <div class="field"><label for="mdate">Move-in date (optional)</label><input id="mdate" placeholder="MM/DD/YYYY"></div>
+  <div class="error" id="merr"></div>
+  <button class="primary" id="confirm">Confirm Move-In</button>
+</div></div>
+<script>
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var add = function (sel, vals) { vals.forEach(function (x) { var o = document.createElement('option'); o.value = o.textContent = x; sel.appendChild(o); }); };
+  var days = []; for (var d = 1; d <= 31; d++) days.push(String(d));
+  var years = []; for (var y = 2023; y >= 1923; y--) years.push(String(y));
+  add(document.getElementById('bday'), days); add(document.getElementById('bmonth'), months); add(document.getElementById('byear'), years);
+  document.getElementById('byear').value = '1990';   /* the real form's plausible-looking default */
+  ['0701','0702','0703','0704','0705','0706','0707','0708','0709','0710','0711','0712','0735','0736','0737','0738',
+   '0739','0740','0741','0742','0743','0744','0745','0746','0901','1204','1408','1520','0500','0512','0611','0640','0777']
+    .forEach(function (u) { var o = document.createElement('option'); o.value = u; o.textContent = u; document.getElementById('munit').appendChild(o); });
+  window.__practice = { system: 'riseio', created: null, moved: null, activation_email_sent: false };
+  var v = function (id) { return document.getElementById(id).value.trim(); };
+  document.getElementById('create').addEventListener('click', function () {
+    if (!v('first') || !v('last') || !v('email')) { document.getElementById('err').textContent = 'First name, last name and email are required.'; return; }
+    window.__practice.created = { first: v('first'), last: v('last'), email: v('email'), phone: v('phone'),
+      birthday: { day: v('bday'), month: v('bmonth'), year: v('byear') } };
+    window.__practice.activation_email_sent = document.getElementById('activate').checked;
+    document.getElementById('veil').classList.add('on');
+  });
+  document.getElementById('confirm').addEventListener('click', function () {
+    if (!v('munit')) { document.getElementById('merr').textContent = 'Choose a unit.'; return; }
+    window.__practice.moved = { unit: v('munit'), date: v('mdate') };
+    document.getElementById('veil').classList.remove('on');
+    document.getElementById('form').style.display = 'none';
+    document.getElementById('profile').style.display = 'block';
+    document.getElementById('pname').textContent = v('first') + ' ' + v('last');
+    document.getElementById('punit').textContent = v('munit');
+    document.getElementById('pstatus').textContent = 'Future';
+    document.getElementById('pdate').textContent = v('mdate') || 'not set';
+    document.getElementById('pact').textContent = window.__practice.activation_email_sent
+      ? 'Activation email: would have been sent (practice).' : 'Activation email: not sent.';
+  });
+</script>
+</body></html>

@@ -235,6 +235,10 @@ SAVE_OUTREACH_AS_DRAFT_ONLY = True
 PROPERTY_NAME = "The Property"
 SIGNATURE = "The Experience Team"
 
+# The shared team mailbox every welcome email is copied to. The real address
+# belongs in config_local.py; empty here means no Cc.
+WELCOME_CC = ""
+
 
 # ---------------------------------------------------------------------------
 # Mail source

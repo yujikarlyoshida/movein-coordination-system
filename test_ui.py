@@ -86,7 +86,7 @@ def test_watching_menu_shows_state_counts_and_actions():
     assert "#0735" in labels and "#1408" in labels
     assert "2 handled by a teammate" in labels
     assert "1 skipped, corporate" in labels
-    for action in ("Open board", "Check now", "Pause watching", "Outlook window", "Quit"):
+    for action in ("Open board", "Check now", "Pause watching", "Open browser", "Quit"):
         assert action in labels
 
 
@@ -122,7 +122,7 @@ def test_unit_rows_open_the_board():
 def test_demo_menu_has_no_outlook_or_pause_controls():
     labels = _labels(_snap(demo=True))
     assert labels[0] == "Watching Move ins (demo)"
-    assert "Outlook window" not in labels and "Pause watching" not in labels
+    assert "Open browser" not in labels and "Pause watching" not in labels
 
 
 def test_menu_text_is_sentence_case_units_only_and_symbol_free():
@@ -380,6 +380,47 @@ def test_plain_board_has_no_popup():
 
 def test_menu_counts_units_missing_info():
     assert "1 missing info" in _labels(_snap())
+
+
+# ---------------------------------------------------------------------------
+# the in-app browser: sign-in state and the Connections panel
+# ---------------------------------------------------------------------------
+
+import browser  # noqa: E402
+
+
+def test_sign_in_state_is_read_from_the_page_address():
+    c = browser.classify
+    assert c("outlook", "https://login.microsoftonline.com/common/oauth2", True) == "signed_out"
+    assert c("outlook", "https://outlook.cloud.microsoft/mail/", True) == "signed_in"
+    assert c("riseio", "https://building.riseio.com/page/login", True) == "signed_out"
+    assert c("riseio", "https://building.riseio.com/app/home", True) == "signed_in"
+    assert c("xfinity", "https://concierge.xc3.xfinity.com/properties", True) == "signed_in"
+    assert c("xfinity", "https://xc3-auth.auth.us-east-1.amazoncognito.com/login", True) == "signed_out"
+    assert c("riseio", "https://building.riseio.com/app/home", False) == "loading"
+    assert c("riseio", "about:blank", True) == "loading"
+
+
+def test_every_site_has_a_tab_in_a_fixed_order():
+    assert browser.ORDER == ("outlook", "riseio", "xfinity")
+    assert set(browser.SITES) == set(browser.ORDER)
+    assert all(url.startswith("https://") for _, url in browser.SITES.values())
+
+
+def test_connections_panel_shows_each_system_with_an_open_button():
+    page = _board(senders={"addresses": [], "names": []}, unknown=[],
+                  connections=[("outlook", "Outlook", "signed_in"), ("riseio", "RiseIO", "signed_out"),
+                               ("xfinity", "Xfinity", "loading")])
+    text = _text(page)
+    assert "Connections" in text
+    assert "Outlook Signed in" in text and "RiseIO Sign in needed" in text and "Xfinity Checking" in text
+    for key in ("outlook", "riseio", "xfinity"):
+        assert f'data-action="open_site" data-value="{key}"' in page
+
+
+def test_no_connections_panel_in_demo_or_the_plain_board():
+    assert "Connections" not in _text(_board(senders={"addresses": [], "names": []}, unknown=[]))
+    assert "Connections" not in _text(_board())
 
 
 # ---------------------------------------------------------------------------
