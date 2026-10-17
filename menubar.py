@@ -147,6 +147,11 @@ class Snapshot:
     def handled(self) -> list[Result]:
         return [r for r in self.results if r.verdict is Verdict.HANDLED]
 
+    @property
+    def skipped(self) -> list[Result]:
+        """Corporate leases: recognised and skipped, never outreach."""
+        return [r for r in self.results if r.verdict is Verdict.SKIPPED_CORPORATE]
+
 
 class TriageDelegate(NSObject):
     """
@@ -277,6 +282,10 @@ class TriageDelegate(NSObject):
                     )
                 if len(needs) > 8:
                     _MENU.addItem_(self._item(f"…and {len(needs) - 8} more", indent=1))
+                _MENU.addItem_(NSMenuItem.separatorItem())
+
+            if snap.skipped:
+                _MENU.addItem_(self._item(f"{len(snap.skipped)} skipped, corporate", "openBoard:"))
                 _MENU.addItem_(NSMenuItem.separatorItem())
 
             if not needs and not unclear:

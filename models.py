@@ -40,6 +40,12 @@ class Verdict(str, Enum):
     # parse is exactly the one most likely to be missed.
     UNCLEAR = "unclear"
 
+    # Triggered, but the lease belongs to a company (corporate housing,
+    # relocation), which is handled outside this workflow. Shown so a person can
+    # see it was recognised, never staged, and never counted as needing outreach.
+    # The result's problems say which signals made the call.
+    SKIPPED_CORPORATE = "skipped_corporate"
+
 
 @dataclass(frozen=True)
 class Evidence:

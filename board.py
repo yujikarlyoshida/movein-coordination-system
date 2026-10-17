@@ -51,6 +51,7 @@ h2 {
 .p-needs   { background: #fbeedb; color: #855420 }
 .p-unclear { background: #f7e4e2; color: #8f3229 }
 .p-handled { background: #e5f0e8; color: #1f6435 }
+.p-skipped { background: #eceff3; color: #4a5563 }
 .meta { font-size: 12px; color: #7a7a7a; margin-top: 4px; word-break: break-word }
 .why  { margin-top: 6px; font-size: 12.5px; color: #6f6f6f }
 .empty { color: #8a8a8a; font-size: 13px; padding: 6px 0 }
@@ -79,6 +80,7 @@ def _pill(verdict: Verdict) -> str:
         Verdict.NEEDS_OUTREACH: ("Needs outreach", "p-needs"),
         Verdict.UNCLEAR: ("Could not read", "p-unclear"),
         Verdict.HANDLED: ("Already handled", "p-handled"),
+        Verdict.SKIPPED_CORPORATE: ("Skipped, corporate", "p-skipped"),
     }[verdict]
     return f'<span class="pill {cls}">{label}</span>'
 
@@ -138,6 +140,7 @@ def render(results: list[Result], operator: str = "") -> str:
     needs = by(Verdict.NEEDS_OUTREACH)
     unclear = by(Verdict.UNCLEAR)
     handled = by(Verdict.HANDLED)
+    skipped = by(Verdict.SKIPPED_CORPORATE)
 
     generated = datetime.now().strftime("%a %d %b %Y, %H:%M")
 
@@ -155,6 +158,7 @@ def render(results: list[Result], operator: str = "") -> str:
 
 {_section("Needs outreach", needs, "Nothing outstanding.")}
 {_section("Could not read", unclear, "Every trigger parsed cleanly.")}
+{_section("Skipped, corporate", skipped, "No corporate leases.")}
 {_section("Already handled", handled, "None yet.")}
 
 <div class="foot">

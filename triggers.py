@@ -55,6 +55,9 @@ class Trigger:
     received: str
     residents: list[TriggerResident] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    # Corporate-lease signal codes (see corporate_signals). Non-empty means the
+    # lease is out of scope: shown as skipped, never staged.
+    corporate: list[str] = field(default_factory=list)
 
     @property
     def units(self) -> list[str]:
@@ -117,6 +120,82 @@ def mentions_trigger_event(body: str) -> bool:
 
 def qualifies(sender: str, body: str, sender_name: str = "") -> bool:
     return is_trigger_sender(sender, sender_name) and mentions_trigger_event(body)
+
+
+# ---------------------------------------------------------------------------
+# Corporate leases (out of scope: detected, then skipped)
+# ---------------------------------------------------------------------------
+
+# Signal codes, and how each reads on the board. Codes, never values: the
+# company's name and contact stay in the email, like a resident's would.
+CORPORATE_SIGNALS = {
+    "poc_label": "POC label",
+    "company_name": "company in the Name field",
+    "company_subject": "company in the subject",
+    "phone_na": "phone given as N/A",
+    "shared_address": "shared or company contact address",
+}
+
+# Any one of these is enough to call it corporate.
+STRONG_CORPORATE_SIGNALS = {"poc_label", "company_name", "company_subject"}
+
+
+def _has_company_word(text: str) -> bool:
+    import re
+
+    words = {w.lower() for w in config.CORPORATE_NAME_WORDS}
+    tokens = re.findall(r"[a-z][a-z.]*[a-z.]|[a-z]", (text or "").lower())
+    # Compare with and without a trailing full stop: "Inc." and "Inc" alike.
+    return any(t in words or t.rstrip(".") in words for t in tokens)
+
+
+def corporate_signals(subject: str, body: str) -> list[str]:
+    """
+    Which corporate-lease signals a trigger shows, as codes from CORPORATE_SIGNALS.
+
+    Seen in real triggers for company-held leases: a POC label, a company in the
+    Name field (LLC, "Living", "Quarters"), a subject naming the company, a
+    phone given as N/A, a shared or company contact address. The first three
+    are strong on their own; the last two are weak. Any signal at all means the
+    lease is skipped -- when unsure, skip and flag, never process -- and the
+    board says which, so a person can check.
+    """
+    import re
+
+    found: list[str] = []
+    text = body or ""
+
+    if re.search(r"(?im)\bPOC\s*[:\-]", text):
+        found.append("poc_label")
+
+    names = re.findall(r"(?im)^\s*(?:resident\s+)?name\s*:\s*(.+?)\s*$", text)
+    if any(_has_company_word(n) for n in names):
+        found.append("company_name")
+
+    # The property's own name can sit in a subject line, and may itself contain
+    # a word like "Living"; it must not make every lease read as corporate.
+    own = getattr(config, "PROPERTY_NAME", "") or ""
+    plain_subject = re.sub(re.escape(own), " ", subject or "", flags=re.I) if own.strip() else (subject or "")
+    if _has_company_word(plain_subject):
+        found.append("company_subject")
+
+    if re.search(r"(?im)^\s*phone(?:\s*number)?\s*:\s*(?:n\s*/?\s*a|none|-+)\s*$", text):
+        found.append("phone_na")
+
+    shared = {s.lower() for s in config.CORPORATE_SHARED_MAILBOXES}
+    addresses = re.findall(r"(?im)^\s*e-?mail(?:\s*address)?\s*:\s*<?([^\s<>@]+)@", text)
+    if any(a.lower() in shared for a in addresses):
+        found.append("shared_address")
+
+    return found
+
+
+def describe_corporate(codes: list[str]) -> str:
+    """The board's note for a skipped lease. Signal names only, no values."""
+    reasons = ", ".join(CORPORATE_SIGNALS[c] for c in codes)
+    if set(codes) & STRONG_CORPORATE_SIGNALS:
+        return f"corporate lease ({reasons}); skipped, out of scope"
+    return f"possibly corporate ({reasons}); skipped, check by hand"
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +410,7 @@ def build_trigger(message: dict) -> Trigger | None:
         received=message.get("received", ""),
         residents=residents,
         problems=problems,
+        corporate=corporate_signals(message.get("subject", ""), body),
     )
 
 

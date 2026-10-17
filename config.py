@@ -166,6 +166,31 @@ LOOKBACK_DAYS = 30
 
 
 # ---------------------------------------------------------------------------
+# Corporate leases: out of scope, detected and skipped
+# ---------------------------------------------------------------------------
+
+# A lease held by a company (corporate housing, relocation) is handled outside
+# this workflow. The tool must never stage outreach for one, so it detects them
+# and shows them as skipped. See triggers.corporate_signals.
+#
+# Words that make a Name: field, or a subject, read as a company. Matched as
+# whole words, case-insensitively, so "Vincent" never matches "inc".
+CORPORATE_NAME_WORDS = [
+    "llc", "l.l.c.", "inc", "inc.", "corp", "corp.", "corporation", "ltd", "ltd.",
+    "co.", "company", "living", "quarters", "housing", "suites", "stays",
+    "relocation", "corporate", "group", "partners", "properties",
+]
+
+# Local parts of a contact address that belong to a shared or company mailbox
+# rather than a person. A weak signal on its own: see triggers.corporate_signals.
+CORPORATE_SHARED_MAILBOXES = [
+    "housing", "relocation", "relo", "info", "admin", "reservations", "bookings",
+    "booking", "corporate", "accounts", "office", "operations", "ops", "leasing",
+    "billing", "contact", "hello", "support", "team",
+]
+
+
+# ---------------------------------------------------------------------------
 # Resident-app field handling
 # ---------------------------------------------------------------------------
 

@@ -77,8 +77,9 @@ def test_units_and_statuses_are_recorded():
         "1408": "needs_outreach",
         "0901": "handled",
         "1204": "handled",
+        "1520": "skipped_corporate",
     }
-    assert history.stats() == {"needs_outreach": 2, "handled": 2}
+    assert history.stats() == {"needs_outreach": 2, "handled": 2, "skipped_corporate": 1}
 
 
 def test_the_log_file_is_private():
@@ -170,6 +171,16 @@ def test_handled_units_are_never_staged():
     assert units == {"0735", "1408"}
     assert "1204" not in units          # colleague announced it
     assert "0901" not in units          # welcome already sent
+
+
+def test_corporate_leases_are_never_staged():
+    # Out of scope: recognised, shown as skipped, and nothing is prepared --
+    # no draft, no portal entry, no resident-app entry.
+    _fresh()
+    plans = staging.collect(sample_data.MESSAGES)
+    assert "1520" not in {p.unit for p in plans}
+    assert all(a.unit != "1520" for p in plans for a in p.actions)
+    assert {e.unit: e.status for e in history.history()}["1520"] == "skipped_corporate"
 
 
 def test_draft_is_composed_in_full_before_confirmation():

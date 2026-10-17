@@ -314,6 +314,9 @@ def collect(messages: list[dict]) -> list[StagedPlan]:
         # outreach here is the exact duplicate this tool exists to prevent.
         if result.verdict is Verdict.HANDLED:
             continue
+        # Corporate leases are out of scope: shown on the board, never staged.
+        if result.verdict is Verdict.SKIPPED_CORPORATE:
+            continue
 
         residents = list(trigger.residents) if trigger else []
         plans.append(stage_for_move_in(result, residents))
@@ -326,6 +329,7 @@ def _status_for(verdict) -> str:
         Verdict.NEEDS_OUTREACH: "needs_outreach",
         Verdict.HANDLED: "handled",
         Verdict.UNCLEAR: "unclear",
+        Verdict.SKIPPED_CORPORATE: "skipped_corporate",
     }.get(verdict, "unclear")
 
 

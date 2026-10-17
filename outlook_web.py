@@ -559,8 +559,10 @@ def _watch(webview, minutes: float) -> None:
             needs = [r for r in results if r.verdict is Verdict.NEEDS_OUTREACH]
             unclear = [r for r in results if r.verdict is Verdict.UNCLEAR]
             handled = [r for r in results if r.verdict is Verdict.HANDLED]
+            skipped = [r for r in results if r.verdict is Verdict.SKIPPED_CORPORATE]
             d = diagnose(messages)
-            print(f"[{stamp}] {len(needs)} need outreach, {len(unclear)} unclear, {len(handled)} handled", flush=True)
+            print(f"[{stamp}] {len(needs)} need outreach, {len(unclear)} unclear, "
+                  f"{len(skipped)} skipped (corporate), {len(handled)} handled", flush=True)
             print(f"        threads in window {d['threads']}: known sender {d['known_sender']}, "
                   f"lease details {d['lease_details']}, both {d['both']} | "
                   f"listed {reader.threads_seen}, opened {reader.last_opened}, "

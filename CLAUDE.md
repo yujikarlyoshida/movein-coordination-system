@@ -42,6 +42,7 @@ Data flows one way: `mailsource` → `triggers` → `rules` → `staging` → si
 - `rules.is_announcement` has three layers: substring `HANDLED_PHRASES`, regex `ANNOUNCEMENT_PATTERNS` (anchored on past-tense "added", so "please add…" does not count), and `is_terse_completion` (first non-empty line must be exactly a `TERSE_COMPLETIONS` word). Never add "complete" to the phrase list.
 - Units are normalised to four digits (`#735` → `0735`) before any comparison.
 - A false `HANDLED` is the dangerous direction; when unsure, prefer `UNCLEAR`.
+- **Corporate leases are out of scope**: `triggers.corporate_signals` reads strong signals (a `POC:`/`POC-` label, a company word in `Name:` or the subject, from `CORPORATE_NAME_WORDS`) and weak ones (`Phone: N/A`, a shared mailbox address from `CORPORATE_SHARED_MAILBOXES`). Any signal gives `SKIPPED_CORPORATE`, checked before every other verdict; weak-only signals say "possibly corporate, check by hand". Skipped units are shown, never staged, never counted as needing outreach. Notes name signals, never the company or contact. The property's own name is stripped from subjects first. Test with synthetic fixtures only.
 - Read status is never evidence. Handled means a reply in the thread (team SOP: reply-all when done), not whether a message was opened.
 
 ## Constraints

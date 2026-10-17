@@ -10,6 +10,7 @@ Covers every case the logic has to get right:
     1204  triggered, colleague announced it    -> handled (announcement)
     0901  triggered, welcome already sent      -> handled (welcome_sent)
     1408  triggered, one resident's unit blank -> needs outreach, with a note
+    1520  triggered, a company holds the lease -> skipped, corporate (never staged)
     ----  right sender, not a move-in          -> not a trigger at all
     ----  wrong sender quoting the trigger     -> not a trigger at all
 
@@ -154,6 +155,28 @@ Name: Resident Echo
 Email: resident-echo@test.invalid
 Apartment Number:
 Lease Start Date: 09/08/2026
+""",
+    },
+
+    # ---- 1520: a corporate lease. The shape seen in practice: the Name field is
+    # a company, a POC label names the contact, the phone is N/A and the address
+    # is a shared mailbox. Out of scope -- must read as skipped, never staged,
+    # and never count as needing outreach.
+    {
+        "id": "m-1520-trigger",
+        "sender": "leasing.manager@example.com",
+        "subject": "New Resident Move In - 1520 - Example Quarters LLC",
+        "received": "2026-08-30T11:20:00Z",
+        "body": """Hi Team,
+
+This resident's lease has been generated.
+
+Name: Example Quarters LLC
+POC: Resident Foxtrot
+Phone: N/A
+Email: housing@example-quarters.invalid
+Apartment Number: 1520
+Lease Start Date: 09/15/2026
 """,
     },
 

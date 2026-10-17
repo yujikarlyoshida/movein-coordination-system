@@ -541,7 +541,7 @@ def test_roommate_trigger_needs_outreach_and_carries_its_note():
 
 def test_noise_produces_no_units():
     units = set(_demo())
-    assert units == {"0735", "1204", "0901", "1408"}
+    assert units == {"0735", "1204", "0901", "1408", "1520"}
 
 
 def test_needs_outreach_sorts_above_handled():
@@ -568,6 +568,115 @@ def test_newest_trigger_wins_for_a_repeated_unit():
     results = rules.evaluate(msgs)
     assert len(results) == 1
     assert results[0].trigger_subject == "UPDATED"
+
+
+# ---------------------------------------------------------------------------
+# corporate leases: detected, skipped, never outreach
+# ---------------------------------------------------------------------------
+
+def _lease(unit="0777", name="Resident Golf", extra="", phone="555-0177",
+           email="r-golf@test.invalid", subject="New Resident Move In - 0777",
+           received="2026-10-01T12:00:00Z", msg_id="corp"):
+    return {"id": msg_id, "sender": "leasing.manager@example.com", "subject": subject,
+            "received": received,
+            "body": f"Lease generated\nName: {name}\n{extra}Phone: {phone}\n"
+                    f"Email: {email}\nApartment Number: {unit}\n"}
+
+
+def _signals(**kw):
+    m = _lease(**kw)
+    return triggers.corporate_signals(m["subject"], m["body"])
+
+
+def test_a_plain_resident_lease_shows_no_corporate_signal():
+    assert _signals() == []
+
+
+def test_each_strong_signal_is_enough_on_its_own():
+    assert _signals(extra="POC: Resident Golf\n") == ["poc_label"]
+    assert _signals(extra="POC- Resident Golf\n") == ["poc_label"]
+    for company in ("Example Holdings LLC", "Example Living", "Example Quarters", "Example Suites Inc."):
+        assert _signals(name=company) == ["company_name"], company
+    assert _signals(subject="New Resident Move In - 0777 - Example Stays") == ["company_subject"]
+
+
+def test_weak_signals_are_detected():
+    assert _signals(phone="N/A") == ["phone_na"]
+    assert _signals(phone="n/a") == ["phone_na"]
+    assert _signals(email="housing@example-co.invalid") == ["shared_address"]
+
+
+def test_company_words_match_whole_words_only():
+    # "Vincent" contains "inc"; "Coleman" starts with "co"; neither is a company.
+    assert _signals(name="Vincent Coleman") == []
+    assert _signals(name="Resident Livingston") == []
+    # A POC-like word inside another word is not a label.
+    assert _signals(extra="Note: Napoc: none\n") == []
+
+
+def test_the_propertys_own_name_never_makes_a_lease_corporate():
+    # A property called "... Living" would otherwise flag every subject.
+    saved = config.PROPERTY_NAME
+    config.PROPERTY_NAME = "Harbor Living"
+    try:
+        assert _signals(subject="Harbor Living | New Resident Move In - 0777") == []
+    finally:
+        config.PROPERTY_NAME = saved
+
+
+def test_a_corporate_lease_reads_as_skipped_not_outreach():
+    (r,) = rules.evaluate([_lease(name="Example Quarters LLC", extra="POC: Resident Golf\n")])
+    assert r.verdict is Verdict.SKIPPED_CORPORATE
+    assert r.problems[0].startswith("corporate lease (")
+
+
+def test_a_weak_signal_alone_still_skips_but_asks_for_a_check():
+    # When unsure, skip and flag, never process.
+    (r,) = rules.evaluate([_lease(phone="N/A")])
+    assert r.verdict is Verdict.SKIPPED_CORPORATE
+    assert r.problems[0].startswith("possibly corporate (")
+    assert "check by hand" in r.problems[0]
+
+
+def test_corporate_wins_over_handled_evidence_and_an_unreadable_date():
+    done = {"id": "d", "subject": "0777 - added to all platforms",
+            "body": "0777 has been added to all platforms.", "received": "2026-10-01T13:00:00Z"}
+    (r,) = rules.evaluate([_lease(extra="POC: Resident Golf\n"), done])
+    assert r.verdict is Verdict.SKIPPED_CORPORATE
+    (r,) = rules.evaluate([_lease(extra="POC: Resident Golf\n", received="")])
+    assert r.verdict is Verdict.SKIPPED_CORPORATE
+
+
+def test_a_corporate_lease_without_a_unit_is_skipped_too():
+    m = _lease(extra="POC: Resident Golf\n")
+    m["body"] = m["body"].replace("Apartment Number: 0777\n", "")
+    results = rules.evaluate([m])
+    assert [r.verdict for r in results] == [Verdict.SKIPPED_CORPORATE]
+
+
+def test_corporate_notes_name_signals_never_values():
+    (r,) = rules.evaluate([_lease(name="Example Quarters LLC", extra="POC: Resident Golf\n",
+                                  email="housing@example-quarters.invalid", phone="N/A")])
+    note = r.problems[0].lower()
+    for value in ("example quarters", "golf", "housing@", "example-quarters"):
+        assert value not in note
+
+
+def test_skipped_sorts_after_outreach_and_unclear_before_handled():
+    msgs = [
+        _lease(unit="0101", msg_id="a"),
+        _lease(unit="0102", msg_id="b", extra="POC: Resident Golf\n"),
+        _lease(unit="0103", msg_id="c"),
+        {"id": "d", "subject": "0103 - added to all platforms",
+         "body": "0103 has been added to all platforms.", "received": "2026-10-01T13:00:00Z"},
+    ]
+    order = [r.verdict for r in rules.evaluate(msgs)]
+    assert order == [Verdict.NEEDS_OUTREACH, Verdict.SKIPPED_CORPORATE, Verdict.HANDLED]
+
+
+def test_the_demo_shows_its_corporate_lease_as_skipped():
+    r = _demo()["1520"]
+    assert r.verdict is Verdict.SKIPPED_CORPORATE
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +711,7 @@ def test_demo_board_ignores_a_local_sender_roster():
         return results
 
     results = _with_hostile_local_config(run)
-    assert {r.unit for r in results} == {"0735", "1204", "0901", "1408"}
+    assert {r.unit for r in results} == {"0735", "1204", "0901", "1408", "1520"}
 
 
 def test_demo_fallback_source_ignores_a_local_sender_roster():
@@ -616,7 +725,7 @@ def test_demo_fallback_source_ignores_a_local_sender_roster():
         results, _ = _with_hostile_local_config(lambda: app.collect())
     finally:
         mailsource.get_source = original
-    assert {r.unit for r in results} == {"0735", "1204", "0901", "1408"}
+    assert {r.unit for r in results} == {"0735", "1204", "0901", "1408", "1520"}
 
 
 def test_demo_staging_ignores_a_local_config():
@@ -650,7 +759,8 @@ def test_no_resident_data_reaches_the_results():
 
     for leak in ("resident-alpha@test.invalid", "resident-bravo@test.invalid",
                  "resident-charlie@test.invalid", "resident-delta@test.invalid",
-                 "resident-echo@test.invalid", "alpha", "bravo", "charlie"):
+                 "resident-echo@test.invalid", "alpha", "bravo", "charlie",
+                 "foxtrot", "housing@example-quarters.invalid"):
         assert leak not in blob
 
 

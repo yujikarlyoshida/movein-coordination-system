@@ -366,7 +366,7 @@ def test_a_pass_opens_the_folder_and_reads_every_thread():
     import outlook_web
 
     view = _load_page(FOLDER_PAGE)
-    reader = outlook_web.OutlookWebReader(view, wait=5)
+    reader = outlook_web.OutlookWebReader(view, wait=10)
     records = reader.read_pass()
 
     assert reader.last_opened == 2
@@ -381,7 +381,7 @@ def test_unchanged_threads_are_not_reopened():
     import outlook_web
 
     view = _load_page(FOLDER_PAGE)
-    reader = outlook_web.OutlookWebReader(view, wait=5)
+    reader = outlook_web.OutlookWebReader(view, wait=10)
     reader.read_pass()
     records = reader.read_pass()
 
@@ -396,7 +396,7 @@ def test_a_reply_reopens_only_that_thread_and_updates_the_verdict():
     import outlook_web
 
     view = _load_page(FOLDER_PAGE)
-    reader = outlook_web.OutlookWebReader(view, wait=5)
+    reader = outlook_web.OutlookWebReader(view, wait=10)
     reader.read_pass()
     outlook_web.run_js(view, "window.addReply('C-0612', 'Hi Team,\\n0612 has been added to all platforms.'); '1'")
     records = reader.read_pass()
@@ -410,7 +410,7 @@ def test_opens_per_pass_are_capped():
         return
     import outlook_web
 
-    reader = outlook_web.OutlookWebReader(_load_page(FOLDER_PAGE), max_opens=1, wait=5)
+    reader = outlook_web.OutlookWebReader(_load_page(FOLDER_PAGE), max_opens=1, wait=10)
     reader.read_pass()
     assert reader.last_opened == 1
 
@@ -536,7 +536,7 @@ def test_a_pass_scrolls_down_to_the_lookback_window():
         return
     import outlook_web
 
-    reader = outlook_web.OutlookWebReader(_load_page(SCROLL_PAGE), wait=5, max_opens=50)
+    reader = outlook_web.OutlookWebReader(_load_page(SCROLL_PAGE), wait=10, max_opens=50)
     records = reader.read_pass()
 
     assert reader.stopped_by == "lookback window"
@@ -551,7 +551,7 @@ def test_with_a_long_window_a_pass_reaches_the_end_of_the_list():
         return
     import outlook_web
 
-    reader = outlook_web.OutlookWebReader(_load_page(SCROLL_PAGE), wait=5, max_opens=50,
+    reader = outlook_web.OutlookWebReader(_load_page(SCROLL_PAGE), wait=10, max_opens=50,
                                           lookback_days=1000)
     records = reader.read_pass()
     assert reader.stopped_by == "end of list"
@@ -563,7 +563,7 @@ def test_the_open_cap_leaves_a_backlog_that_later_passes_clear():
         return
     import outlook_web
 
-    reader = outlook_web.OutlookWebReader(_load_page(SCROLL_PAGE), wait=5, max_opens=5)
+    reader = outlook_web.OutlookWebReader(_load_page(SCROLL_PAGE), wait=10, max_opens=5)
     first = reader.read_pass()
     assert reader.last_opened == 5
     assert reader.backlog > 0

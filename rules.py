@@ -264,7 +264,13 @@ def evaluate(messages: list[dict]) -> list[Result]:
         # original does not clear the new version.
         evidence = find_evidence(unit, messages, trigger_id=trigger_id, since=trigger_received)
 
-        if parse_received(trigger_received) is None:
+        corporate = list(getattr(trigger, "corporate", []))
+        if corporate:
+            # Out of scope, whatever else the mailbox says. Checked first so no
+            # later branch can turn a company lease into outreach.
+            verdict = Verdict.SKIPPED_CORPORATE
+            problems.insert(0, triggers.describe_corporate(corporate))
+        elif parse_received(trigger_received) is None:
             # Without a trigger date, older mail cannot be ruled out as
             # evidence, so neither HANDLED nor a confident NEEDS OUTREACH holds.
             verdict = Verdict.UNCLEAR
@@ -300,15 +306,17 @@ def evaluate(messages: list[dict]) -> list[Result]:
     # to be seen.
     for t in found:
         if not t.units:
+            corporate = list(getattr(t, "corporate", []))
             results.append(
                 Result(
                     unit="?",
-                    verdict=Verdict.UNCLEAR,
+                    verdict=Verdict.SKIPPED_CORPORATE if corporate else Verdict.UNCLEAR,
                     trigger_subject=getattr(t, "subject", ""),
                     trigger_received=getattr(t, "received", ""),
                     trigger_sender=getattr(t, "sender", ""),
                     trigger_id=getattr(t, "message_id", ""),
-                    problems=list(getattr(t, "problems", [])) or ["no unit number found"],
+                    problems=([triggers.describe_corporate(corporate)] if corporate else [])
+                    + (list(getattr(t, "problems", [])) or ["no unit number found"]),
                 )
             )
 
@@ -320,6 +328,7 @@ def _sorted(results: list[Result]) -> list[Result]:
     order = {
         Verdict.NEEDS_OUTREACH: 0,
         Verdict.UNCLEAR: 1,
-        Verdict.HANDLED: 2,
+        Verdict.SKIPPED_CORPORATE: 2,
+        Verdict.HANDLED: 3,
     }
     return sorted(results, key=lambda r: (order[r.verdict], r.unit))

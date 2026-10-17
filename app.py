@@ -69,6 +69,7 @@ def print_console(results: list[Result]) -> None:
     needs = [r for r in results if r.verdict is Verdict.NEEDS_OUTREACH]
     unclear = [r for r in results if r.verdict is Verdict.UNCLEAR]
     handled = [r for r in results if r.verdict is Verdict.HANDLED]
+    skipped = [r for r in results if r.verdict is Verdict.SKIPPED_CORPORATE]
 
     print(f"\nMove-in triage — {len(results)} triggered unit(s)\n")
 
@@ -88,6 +89,12 @@ def print_console(results: list[Result]) -> None:
             print(f"  #{r.unit}  {r.trigger_subject}")
             for p in r.problems:
                 print(f"      note: {p}")
+        print()
+
+    if skipped:
+        print(f"SKIPPED, CORPORATE ({len(skipped)})")
+        for r in skipped:
+            print(f"  #{r.unit}  {r.problems[0] if r.problems else ''}")
         print()
 
     if handled:
