@@ -138,7 +138,7 @@ def _build() -> None:
              | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
     win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
         NSMakeRect(0, 0, W, H), style, NSBackingStoreBuffered, False)
-    win.setTitle_("Move-in triage browser")
+    win.setTitle_("Housewarm browser")
     # Closing only hides it: the sessions and the reader keep running.
     win.setReleasedWhenClosed_(False)
     win.setFrameAutosaveName_("MoveInTriageBrowser")

@@ -120,6 +120,51 @@ tr.fresh td { animation: glow 3.4s ease-out both }
 .scrolled .top { border-bottom-color: var(--line); box-shadow: 0 1px 14px rgba(0, 0, 0, .06) }
 .scrolly h1, .scrolly .lede { transform: translateY(calc(var(--away, 0) * -24px)) scale(calc(1 - var(--away, 0) * .02));
   transform-origin: left; opacity: calc(1 - var(--away, 0) * .5) }
+
+/* ---- Colour and depth ---------------------------------------------------
+   A soft Siri-style glow behind the top of the page, frosted-glass surfaces
+   over it, and one colour per status carried through the count cards and the
+   table, so the board reads at a glance. */
+:root { --c-needs: #e5317a; --c-check: #a23fd1; --c-handled: #2f7cf6; --c-skipped: #a1a1aa }
+body { position: relative; isolation: isolate }
+body::before {
+  content: ""; position: fixed; z-index: -1; left: -10vw; right: -10vw; top: -30vh; height: 95vh; pointer-events: none;
+  background:
+    radial-gradient(38% 46% at 18% 40%, rgba(229, 49, 122, .20), transparent 70%),
+    radial-gradient(34% 44% at 50% 30%, rgba(161, 77, 233, .18), transparent 70%),
+    radial-gradient(36% 46% at 84% 42%, rgba(79, 182, 245, .20), transparent 70%);
+  filter: blur(30px); animation: drift 26s ease-in-out infinite alternate;
+}
+@keyframes drift { from { transform: translate3d(-2%, 0, 0) scale(1) } to { transform: translate3d(2%, 3%, 0) scale(1.06) } }
+.card, .table, .panel, .pop, .choice {
+  background-color: rgba(255, 255, 255, .74);
+  -webkit-backdrop-filter: saturate(170%) blur(22px); backdrop-filter: saturate(170%) blur(22px);
+  border: 1px solid rgba(255, 255, 255, .7);
+}
+.card.hot { border: 2px solid transparent }
+h1 { font-size: 58px }
+/* The top bar spans the whole window, frosted over the glow. */
+.top { margin-inline: calc(50% - 50vw); padding-inline: calc(50vw - 50% + 0px);
+  background: rgba(251, 251, 253, .55) }
+.wz h1 { font-size: 52px }
+/* Status colours on the count cards: a slim bar along the top. */
+.cards .card { position: relative; overflow: hidden }
+.cards .card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--k, transparent); opacity: .85 }
+.cards .k-needs { --k: var(--grad) } .cards .k-handled { --k: var(--c-handled) }
+.cards .k-skipped { --k: var(--c-skipped) } .cards .k-check { --k: var(--c-check) }
+.cards .card.hot::before { display: none }
+/* ...and down the left edge of each row. */
+tbody tr td:first-child { box-shadow: inset 4px 0 0 var(--row, transparent) }
+tr[data-verdict="needs_outreach"] { --row: var(--c-needs) }
+tr[data-verdict="unclear"] { --row: var(--c-check) }
+tr[data-verdict="handled"] { --row: var(--c-handled) }
+tr[data-verdict="skipped_corporate"] { --row: var(--c-skipped) }
+tr[data-verdict="handled"] .unit a, tr[data-verdict="skipped_corporate"] .unit a { color: var(--ink-2) }
+/* The main call to action carries the brand gradient. */
+.p-prepare { background-image: var(--grad-loop); background-size: 200% auto; color: #fff;
+  box-shadow: 0 4px 14px rgba(193, 63, 209, .28); animation: shimmer 9s linear infinite }
+.btn.dark { box-shadow: 0 4px 14px rgba(0, 113, 227, .28) }
+@media (max-width: 720px) { h1 { font-size: 36px } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important }
   .scrolly .reveal:not(.in) { opacity: 1; transform: none }
@@ -654,15 +699,15 @@ def render(results: list[Result], operator: str = "", status: str = "",
     status_text = status or f"Updated {generated}"
 
     cards = [
-        ("Need outreach", len(needs), bool(needs)),
-        ("Handled", len(handled), False),
-        ("Skipped, corporate", len(skipped), False),
-        ("Check", len(unclear), bool(unclear)),
+        ("Need outreach", len(needs), bool(needs), "k-needs"),
+        ("Handled", len(handled), False, "k-handled"),
+        ("Skipped, corporate", len(skipped), False, "k-skipped"),
+        ("Check", len(unclear), bool(unclear), "k-check"),
     ]
     cards_html = "".join(
-        f'<div class="card{" hot" if hot else ""}"><div class="label">{_esc(label)}</div>'
+        f'<div class="card {kind}{" hot" if hot else ""}"><div class="label">{_esc(label)}</div>'
         f'<div class="n">{n}</div></div>'
-        for label, n, hot in cards
+        for label, n, hot, kind in cards
     )
 
     # Order: what needs you, then what to check, then skipped, then done.
@@ -715,13 +760,13 @@ def render(results: list[Result], operator: str = "", status: str = "",
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Move-in triage</title>
+<title>Housewarm</title>
 <style>{CSS}</style>
 {INTRO_HEAD}
 </head>
 <body>
 <div class="wrap">
-<div class="top"><div class="brand">Move-in triage</div><div class="right"><div class="status">{_esc(status_text)}</div>{run_button}</div></div>
+<div class="top"><div class="brand">Housewarm</div><div class="right"><div class="status">{_esc(status_text)}</div>{run_button}</div></div>
 {notice_html}
 <h1>{_headline(len(needs), len(unclear))}</h1>
 <p class="lede">{_esc(lede)}</p>

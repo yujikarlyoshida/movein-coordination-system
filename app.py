@@ -71,7 +71,7 @@ def print_console(results: list[Result]) -> None:
     handled = [r for r in results if r.verdict is Verdict.HANDLED]
     skipped = [r for r in results if r.verdict is Verdict.SKIPPED_CORPORATE]
 
-    print(f"\nMove-in triage — {len(results)} triggered unit(s)\n")
+    print(f"\nHousewarm — {len(results)} triggered unit(s)\n")
 
     if needs:
         print(f"NEEDS OUTREACH ({len(needs)})")
@@ -239,7 +239,7 @@ def run_db(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Move-in triage")
+    parser = argparse.ArgumentParser(description="Housewarm")
     parser.add_argument("--watch", action="store_true", help="run continuously")
     parser.add_argument("--console", action="store_true", help="print text instead of HTML")
     parser.add_argument("--stage", action="store_true", help="prepare actions and show the confirmation")

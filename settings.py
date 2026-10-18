@@ -38,7 +38,9 @@ APP_SUPPORT = Path.home() / "Library" / "Application Support" / "MoveInTriage"
 SETTINGS_PATH = APP_SUPPORT / "settings.json"
 _ENV_VAR = "MOVEIN_SETTINGS_PATH"
 
-PROFILE_KIND = "movein-triage-profile"
+PROFILE_KIND = "housewarm-profile"
+# Profiles saved before the rename are still accepted.
+_OLD_PROFILE_KINDS = {"movein-triage-profile"}
 PROFILE_VERSION = 1
 DEFAULT_FOLDER = "Move ins"
 
@@ -227,8 +229,8 @@ def import_profile(profile: dict) -> tuple[bool, str]:
     import senders
     import welcome_template
 
-    if not isinstance(profile, dict) or profile.get("kind") != PROFILE_KIND:
-        return False, "That file isn't a Move-in triage profile."
+    if not isinstance(profile, dict) or profile.get("kind") not in {PROFILE_KIND, *_OLD_PROFILE_KINDS}:
+        return False, "That file isn't a Housewarm profile."
     if not isinstance(profile.get("version"), int) or profile["version"] > PROFILE_VERSION:
         return False, "That profile is from a newer version of the app. Update the app first."
     prop = profile.get("property")

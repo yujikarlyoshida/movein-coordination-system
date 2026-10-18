@@ -151,7 +151,7 @@ def _set_up_property():
 def test_a_profile_carries_the_property_but_never_you():
     _set_up_property()
     profile = settings.export_profile()
-    assert profile["kind"] == "movein-triage-profile" and profile["version"] == 1
+    assert profile["kind"] == "housewarm-profile" and profile["version"] == 1
     assert profile["property"]["name"] == "Example Commons"
     assert profile["senders"] == {"addresses": ["leasing.desk@example.com"], "names": ["Leasing Lead"]}
     assert profile["welcome_template_html"] == TEMPLATE
@@ -194,6 +194,13 @@ def test_a_bad_profile_changes_nothing():
     assert (settings.path().read_text(), senders.path().read_text()) == before
     ok, _ = settings.read_profile(_TMP / "does-not-exist.json")
     assert not ok
+
+
+def test_a_profile_saved_before_the_rename_still_imports():
+    _set_up_property()
+    profile = dict(settings.export_profile(include_template=False), kind="movein-triage-profile")
+    ok, message = settings.import_profile(profile)
+    assert ok, message
 
 
 def test_profile_sender_addresses_are_checked():

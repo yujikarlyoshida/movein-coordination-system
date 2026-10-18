@@ -105,7 +105,7 @@ def _message_handler():
     return _handler
 
 
-def show_board(html_path: str, title: str = "Move-in triage", on_action=None) -> None:
+def show_board(html_path: str, title: str = "Housewarm", on_action=None) -> None:
     """
     Open (or re-focus) a native window displaying the board.
 

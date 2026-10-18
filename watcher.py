@@ -150,7 +150,7 @@ class Watcher:
         if fresh:
             units = ", ".join(f"#{u}" for u in sorted(fresh))
             plural = "move-in needs" if len(fresh) == 1 else "move-ins need"
-            notify("Move-in triage", f"{len(fresh)} {plural} you: {units}")
+            notify("Housewarm", f"{len(fresh)} {plural} you: {units}")
 
         # Forget units that have closed, so if one reopens it announces again.
         self._announced = current

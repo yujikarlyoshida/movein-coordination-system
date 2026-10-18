@@ -143,7 +143,7 @@ def test_a_profile_is_summarised_before_import():
         import menubar
     except ImportError:
         return
-    summary = menubar.profile_summary({"kind": "movein-triage-profile", "version": 1,
+    summary = menubar.profile_summary({"kind": "housewarm-profile", "version": 1,
                                        "property": {"name": "Example Commons"},
                                        "senders": {"addresses": ["a@example.com"], "names": ["Leasing Lead"]},
                                        "welcome_template_html": "<p>Hi</p>"})

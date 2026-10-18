@@ -207,7 +207,7 @@ class TriageDelegate(NSObject):
         icon = None
         for symbol in ("checklist", "list.bullet.clipboard", "list.bullet", "circle"):
             icon = NSImage.imageWithSystemSymbolName_accessibilityDescription_(
-                symbol, "Move-in triage"
+                symbol, "Housewarm"
             )
             if icon is not None:
                 break
@@ -467,7 +467,7 @@ class TriageDelegate(NSObject):
             units = ", ".join(f"#{u}" for u in sorted(new))
             word = "unit needs" if len(new) == 1 else "units need"
             notify(
-                "Move-in triage",
+                "Housewarm",
                 f"{len(new)} {word} outreach",
                 f"{units}: no sign a teammate has picked it up yet.",
             )
@@ -499,7 +499,7 @@ class TriageDelegate(NSObject):
         if blocks:
             detail += f", so {' and '.join(blocks)} can't be done yet"
         more = f" and {len(fresh) - 1} more unit{'s' if len(fresh) > 2 else ''}" if len(fresh) > 1 else ""
-        notify("Move-in triage", f"#{first.unit}{more}: details missing", detail + ".")
+        notify("Housewarm", f"#{first.unit}{more}: details missing", detail + ".")
 
     @objc.python_method
     def _show_outlook(self):
@@ -763,7 +763,7 @@ class TriageDelegate(NSObject):
                     include = bool(json.loads(value).get("template"))
                 except (ValueError, AttributeError):
                     pass
-            target = _save_panel("move-in-triage-profile.json")
+            target = _save_panel("housewarm-profile.json")
             if target:
                 settings.write_profile(target, include_template=include)
                 st["notice"] = "Profile saved. Send that file to teammates; it holds no personal details."
@@ -780,7 +780,7 @@ class TriageDelegate(NSObject):
                 profile = None
             summary = profile_summary(profile)
             if not summary:
-                st["notice"] = "That file isn't a Move-in triage profile."
+                st["notice"] = "That file isn't a Housewarm profile."
             elif _confirm_alert("Import this profile?", summary, "Import"):
                 ok, st["notice"] = settings.import_profile(profile)
                 if ok:
@@ -969,7 +969,7 @@ def profile_summary(profile) -> str:
     """What a profile holds, in plain words, before anything is applied."""
     import settings
 
-    if not isinstance(profile, dict) or profile.get("kind") != settings.PROFILE_KIND:
+    if not isinstance(profile, dict) or profile.get("kind") not in {settings.PROFILE_KIND, *settings._OLD_PROFILE_KINDS}:
         return ""
     prop = profile.get("property") if isinstance(profile.get("property"), dict) else {}
     roster = profile.get("senders") if isinstance(profile.get("senders"), dict) else {}
@@ -992,7 +992,7 @@ def _confirm_alert(title: str, text: str, ok: str) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Move-in triage menu bar app")
+    parser = argparse.ArgumentParser(description="Housewarm menu bar app")
     parser.add_argument("--demo", action="store_true", help="use sample data, no sign-in")
     parser.add_argument("--board", action="store_true", help="also open the board window at launch")
     parser.add_argument("--browser", metavar="TAB", nargs="?", const="riseio",

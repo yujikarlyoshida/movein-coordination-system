@@ -221,7 +221,7 @@ def _howto(title: str, steps: list[str], tips: list[str] | None = None, why: str
 
 def _start(ctx) -> str:
     return f"""
-<h1>Welcome to <span class="mark">Move-in triage</span></h1>
+<h1>Welcome to <span class="mark">Housewarm</span></h1>
 <p class="lede">It watches your Move ins folder, tells you which new residents still need
 setting up, and fills RiseIO, Xfinity and the welcome email for you to check.</p>
 <ul class="promises">
@@ -253,7 +253,7 @@ def _outlook(ctx) -> str:
 <h1>Sign in to <span class="mark">Outlook</span></h1>
 <p class="lede">The app reads your mail through its own browser window, signed in as you.</p>
 {_howto("What to do", [
-    "Press <b>Open Outlook</b>. A window called Move-in triage browser opens on the Email tab.",
+    "Press <b>Open Outlook</b>. A window called Housewarm browser opens on the Email tab.",
     "Sign in with your usual work account, including any code sent to your phone.",
     "Wait until your inbox shows, then come back to this window.",
     "Press <b>Check again</b> until it says Signed in, then press <b>Continue</b>.",
@@ -458,13 +458,13 @@ def render(step: str, ctx: dict) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Move-in triage</title>
+<title>Housewarm</title>
 <style>{board.CSS}{CSS}</style>
 <script>setTimeout(function () {{ document.documentElement.classList.remove('intro'); }}, 2800);</script>
 </head>
 <body>
 <div class="wrap">
-<div class="top"><div class="brand">Move-in triage <span class="status">{title}</span></div>
+<div class="top"><div class="brand">Housewarm <span class="status">{title}</span></div>
 <div class="right">{tabs}</div></div>
 <div class="wz">
 {notice}
