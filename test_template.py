@@ -68,6 +68,30 @@ def test_layout_images_and_links_survive():
     assert '<a href="mailto:office@example.invalid">' in out and "&nbsp;" in out
 
 
+def test_outlooks_own_signature_is_left_out():
+    # A new message already carries the sender's signature; keeping the one
+    # captured with the template would sign twice, and a shared profile would
+    # sign teammates' emails with the capturer's name.
+    signed = SAMPLE.replace("<p>With gratitude,</p></div>",
+                            '<p>With gratitude,</p><div id="Signature"><table><tr><td>'
+                            "<b>Capturer Name</b><br>Experience Ambassador<br>capturer@example.invalid"
+                            '<img src="https://images.example.invalid/sig.png"></td></tr></table></div></div>')
+    out, text = wt.render(["Maria"], signed)
+    assert "With gratitude," in out
+    assert "Capturer Name" not in out and "capturer@example.invalid" not in out and "sig.png" not in out
+    assert "Capturer Name" not in text
+    # Replies name it x_Signature.
+    out, _ = wt.render(["Maria"], signed.replace('id="Signature"', 'id="x_Signature"'))
+    assert "Capturer Name" not in out
+
+
+def test_images_that_only_existed_in_one_outlook_window_are_dropped():
+    out, _ = wt.render(["Maria"], SAMPLE + '<p><img src="blob:https://outlook.office.com/1234" width="135"></p>'
+                                           '<p><img src="blob:x" /></p>')
+    assert "blob:" not in out
+    assert '<img src="https://images.example.invalid/logo.png" alt="logo">' in out
+
+
 def test_names_are_escaped():
     out, _ = wt.render(['<b>Maria</b>'], SAMPLE)
     assert "<b>Maria</b>" not in out and "&lt;b&gt;Maria&lt;/b&gt;" in out

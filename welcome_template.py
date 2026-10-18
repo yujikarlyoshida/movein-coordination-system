@@ -10,12 +10,18 @@ tab, and the message body's HTML is saved privately:
 It holds your property's details, so it never goes into the repository; this
 module contains no template content of its own.
 
-The captured HTML is used as it is. Only three things change:
+The captured HTML is used as it is. Only these things change:
 
   * (Resident Name) becomes the resident's first name, or "Maria and James"
   * elements set in the FluentSystemIcons font are removed -- the template
     carries two empty icon blocks that otherwise render as stray boxes
   * icon-font (private-use) characters and emoji are removed
+  * Outlook's automatic signature (the block it marks id="Signature") is
+    removed. A new message already gets the sender's own signature, so
+    keeping it would sign every email twice -- and a shared profile would
+    sign a teammate's emails with the capturer's name
+  * images that only existed in that one Outlook window (blob: addresses)
+    are removed; they would arrive broken
 
 A plain-text copy for the email's text part is derived from the same HTML.
 """
@@ -77,9 +83,20 @@ def greeting_names(first_names: list[str]) -> str:
     return ", ".join(names[:-1]) + f" and {names[-1]}"
 
 
+def _is_signature(attrs: dict) -> bool:
+    """Outlook's automatic signature block: id "Signature" (or "x_Signature"
+    once a message has been replied to)."""
+    return (attrs.get("id") or "").lower() in ("signature", "x_signature")
+
+
+def _is_temporary_image(tag: str, attrs: dict) -> bool:
+    return tag == "img" and (attrs.get("src") or "").lower().startswith("blob:")
+
+
 class _DropIcons(HTMLParser):
-    """Rebuilds the HTML, leaving out every element styled FluentSystemIcons
-    (and everything inside it). Everything else passes through unchanged."""
+    """Rebuilds the HTML, leaving out every element styled FluentSystemIcons,
+    Outlook's signature block (each with everything inside it) and temporary
+    images. Everything else passes through unchanged."""
 
     VOID = {"br", "img", "hr", "input", "meta", "link", "col", "area", "base", "wbr", "source"}
 
@@ -89,18 +106,21 @@ class _DropIcons(HTMLParser):
         self.skip = 0
 
     def handle_starttag(self, tag, attrs):
-        style = dict(attrs).get("style") or ""
+        a = dict(attrs)
+        style = a.get("style") or ""
         if self.skip:
             if tag not in self.VOID:
                 self.skip += 1
             return
-        if "fluentsystemicons" in style.lower().replace(" ", "") and tag not in self.VOID:
+        if tag not in self.VOID and ("fluentsystemicons" in style.lower().replace(" ", "") or _is_signature(a)):
             self.skip = 1
+            return
+        if _is_temporary_image(tag, a):
             return
         self.out.append(self.get_starttag_text())
 
     def handle_startendtag(self, tag, attrs):
-        if not self.skip:
+        if not self.skip and not _is_temporary_image(tag, dict(attrs)):
             self.out.append(self.get_starttag_text())
 
     def handle_endtag(self, tag):
@@ -128,7 +148,8 @@ class _DropIcons(HTMLParser):
 
 
 def clean(template_html: str) -> str:
-    """The template with icon-font elements and stray glyphs removed."""
+    """The template without icon-font elements, Outlook's signature block,
+    temporary images or stray glyphs."""
     p = _DropIcons()
     p.feed(template_html)
     p.close()
