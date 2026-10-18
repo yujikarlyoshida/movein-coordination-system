@@ -122,6 +122,19 @@ CSS = """
 .why p { margin: 6px 0 0 }
 .pick { font-size: 14px; color: var(--ink-2); margin: 0 0 10px }
 .demo-link .note { color: var(--ink-2) }
+
+/* Each step slides in as it opens; the progress bar fills to the current step. */
+.intro .wz > * { animation: rise .6s var(--ease) both }
+.intro .wz > *:nth-child(2) { animation-delay: .04s }
+.intro .wz > *:nth-child(3) { animation-delay: .08s }
+.intro .wz > *:nth-child(4) { animation-delay: .12s }
+.intro .wz > *:nth-child(5) { animation-delay: .16s }
+.intro .wz > *:nth-child(6) { animation-delay: .2s }
+.intro .wz > *:nth-child(n+7) { animation-delay: .24s }
+.intro .steps-dots span.now { transform-origin: left; animation: grow .7s var(--ease) .1s both }
+.intro .choices .choice:nth-child(2) { animation: rise .6s var(--ease) .3s both }
+.intro .choices .choice:nth-child(1) { animation: rise .6s var(--ease) .24s both }
+.why[open] p { animation: fade .25s ease both }
 """
 
 _SCRIPT = """
@@ -162,7 +175,8 @@ def _dots(step: str) -> str:
     shown = STEPS[1:]
     at = shown.index(step) if step in shown else -1
     return '<div class="steps-dots">' + "".join(
-        f'<span class="{"on" if i <= at else ""}"></span>' for i in range(len(shown))) + "</div>"
+        f'<span class="{"on now" if i == at else "on" if i < at else ""}"></span>'
+        for i in range(len(shown))) + "</div>"
 
 
 def _btn(label, action, value="", kind="dark", form="", busy=""):
@@ -437,12 +451,13 @@ def render(step: str, ctx: dict) -> str:
             _esc(p[:1].upper() + p[1:] + ".") for p in ctx["problems"]) + "</div>"
     title = "Settings" if edit else "Welcome"
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="intro">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Move-in triage</title>
 <style>{board.CSS}{CSS}</style>
+<script>setTimeout(function () {{ document.documentElement.classList.remove('intro'); }}, 1600);</script>
 </head>
 <body>
 <div class="wrap">

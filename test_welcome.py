@@ -206,6 +206,18 @@ def test_hiding_the_guide_is_remembered():
         os.environ.pop("MOVEIN_SETTINGS_PATH", None)
 
 
+def test_motion_switches_off_for_reduce_motion_and_never_hides_the_page():
+    page = _board(True)
+    assert "prefers-reduced-motion: reduce" in page
+    # The entrance is a class that a timer always removes, so a paused
+    # animation can never leave the board invisible.
+    assert "classList.remove('intro')" in page and "1600" in page
+    # The count-up always lands on the real number.
+    assert "el.textContent = String(end)" in page
+    step = welcome.render("you", _ctx())
+    assert 'class="intro"' in step and "classList.remove('intro')" in step
+
+
 # ---------------------------------------------------------------------------
 # the scripts that read Outlook, in real WebKit
 # ---------------------------------------------------------------------------

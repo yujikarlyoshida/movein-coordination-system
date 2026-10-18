@@ -28,6 +28,124 @@ import confirm_sheet
 import triggers
 from models import Result, Verdict
 
+MOTION_CSS = r"""
+/* ---- Motion -------------------------------------------------------------
+   Entrances play once per app session (the board redraws itself every few
+   minutes, and replaying them each time would be noise). After that, only
+   what changed moves: a new or changed unit's row glows briefly. Everything
+   here is switched off under System Settings > Accessibility > Reduce motion. */
+:root {
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --grad-loop: linear-gradient(100deg, #e5317a 0%, #c13fd1 19%, #8a6ce8 33%, #4fb6f5 50%,
+                                       #8a6ce8 67%, #c13fd1 81%, #e5317a 100%);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: none } }
+@keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes grow { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+@keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.97) } to { opacity: 1; transform: none } }
+@keyframes shimmer { from { background-position: 0% 50% } to { background-position: 200% 50% } }
+@keyframes ring { from { background-position: 0 0, 0% 50% } to { background-position: 0 0, 200% 50% } }
+@keyframes glow { 0% { background: var(--hi) } 100% { background: transparent } }
+@keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(193, 63, 209, .28) } 50% { box-shadow: 0 0 0 6px rgba(193, 63, 209, 0) } }
+
+/* The gradient words drift slowly, like the Siri wordmark. */
+.mark, .card.hot .n { background-image: var(--grad-loop); background-size: 200% auto; animation: shimmer 9s linear infinite }
+.card.hot { background: linear-gradient(var(--card), var(--card)) padding-box, var(--grad-loop) border-box;
+  background-size: auto, 200% auto; animation: ring 9s linear infinite }
+
+/* First view: the page assembles from the top down. */
+.intro h1 { animation: rise .7s var(--ease) both }
+.intro .lede { animation: rise .7s var(--ease) .06s both }
+.intro .rule { transform-origin: left; animation: grow .9s var(--ease) .12s both }
+.intro .guide { animation: rise .7s var(--ease) .16s both }
+.intro .cards .card { animation: rise .7s var(--ease) both }
+.intro .cards .card:nth-child(1) { animation-delay: .2s }
+.intro .cards .card:nth-child(2) { animation-delay: .26s }
+.intro .cards .card:nth-child(3) { animation-delay: .32s }
+.intro .cards .card:nth-child(4) { animation-delay: .38s }
+.intro .card.hot { animation: rise .7s var(--ease) .2s both, ring 9s linear infinite }
+.intro .table { animation: rise .7s var(--ease) .44s both }
+.intro .panel:not(.guide) { animation: rise .7s var(--ease) .5s both }
+.intro .top { animation: fade .5s ease both }
+
+/* Hover and press: things that can be clicked respond. */
+.card, .choice, .btn, .pill, .chip, tr { transition: transform .2s var(--ease), box-shadow .2s var(--ease), background-color .2s ease, filter .15s ease }
+.cards .card:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(0, 0, 0, .05), 0 14px 34px rgba(0, 0, 0, .09) }
+.choice:hover { transform: translateY(-2px) }
+tbody tr:hover { background-color: rgba(0, 0, 0, .018) }
+.p-prepare:hover, .p-missing:hover { transform: translateY(-1px) }
+.btn:active, .choice:active, .pill:active { transform: scale(.97) }
+
+/* A unit that is new, or whose status changed, since the last look. */
+tr.fresh td { animation: glow 2.6s ease-out both }
+
+/* Pop-ups ease in rather than appearing. */
+.veil.open { animation: fade .2s ease both }
+.veil.open .pop { animation: pop .32s var(--ease) both }
+
+/* The guided run's "Your turn" gently pulses until you act. */
+.progress li.your_turn { animation: nudge 2.2s ease-in-out infinite }
+.progress li { animation: fade .3s ease both }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important }
+}
+"""
+
+INTRO_HEAD = r"""<script>
+(function () {
+  var root = document.documentElement;
+  try {
+    // Plays on the first board with real results in this window. The brief
+    // "Starting" board before the first check plays it too, without using it up.
+    if (!sessionStorage.getItem('movein-intro')) {
+      root.classList.add('intro');
+      if (root.dataset.ready) sessionStorage.setItem('movein-intro', '1');
+    }
+  } catch (e) { root.classList.add('intro'); }
+  // A safety net, not a timing: the entrance is over by now. If WebKit has
+  // paused animations (a hidden window), never leave the page invisible.
+  setTimeout(function () { root.classList.remove('intro'); }, 1600);
+})();
+</script>"""
+
+MOTION_BODY = r"""<script>
+(function () {
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (document.documentElement.classList.contains('intro') && !reduce) {
+    document.querySelectorAll('.cards .n').forEach(function (el) {
+      var end = parseInt(el.textContent, 10);
+      if (!(end > 0)) return;
+      var start = null;
+      el.textContent = '0';
+      setTimeout(function () { el.textContent = String(end); }, 1600);
+      function step(t) {
+        if (start === null) start = t;
+        var p = Math.min(1, (t - start) / 700);
+        el.textContent = String(Math.round(end * (1 - Math.pow(1 - p, 3))));
+        if (p < 1) requestAnimationFrame(step);
+      }
+      setTimeout(function () { requestAnimationFrame(step); }, 250);
+    });
+  }
+  var now = {};
+  document.querySelectorAll('tbody tr[data-verdict]').forEach(function (tr) {
+    var a = tr.querySelector('.unit a');
+    if (a) now[a.textContent.trim()] = { verdict: tr.dataset.verdict, row: tr };
+  });
+  var before = null;
+  try { before = JSON.parse(sessionStorage.getItem('movein-rows') || 'null'); } catch (e) {}
+  if (before) {
+    Object.keys(now).forEach(function (unit) {
+      if (before[unit] !== now[unit].verdict) now[unit].row.classList.add('fresh');
+    });
+  }
+  var save = {};
+  Object.keys(now).forEach(function (unit) { save[unit] = now[unit].verdict; });
+  try { sessionStorage.setItem('movein-rows', JSON.stringify(save)); } catch (e) {}
+})();
+</script>"""
+
 CSS = """
 :root {
   color-scheme: light;
@@ -139,7 +257,7 @@ tr:last-child td { border-bottom: 0 }
   .g-cols { grid-template-columns: 1fr }
   th, td { padding: 12px 12px }
 }
-""" + confirm_sheet.CSS
+""" + confirm_sheet.CSS + MOTION_CSS
 
 _STATUS = {
     Verdict.NEEDS_OUTREACH: ("Needs outreach", "p-needs"),
@@ -503,12 +621,13 @@ def render(results: list[Result], operator: str = "", status: str = "",
             "Read-only: nothing is sent, saved or changed in Outlook.")
 
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en"{' data-ready="1"' if results else ""}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Move-in triage</title>
 <style>{CSS}</style>
+{INTRO_HEAD}
 </head>
 <body>
 <div class="wrap">
@@ -529,6 +648,7 @@ Select a unit to search Outlook for its thread.
 </div>
 </div>
 {_SCRIPT if interactive else ""}
+{MOTION_BODY}
 {"<script>" + confirm_sheet.SCRIPT + "</script>" if interactive else ""}
 </body>
 </html>
