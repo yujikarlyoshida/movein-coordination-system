@@ -80,7 +80,8 @@ CSS = """
 .steps-dots { display: flex; gap: 6px; margin: 28px 0 0 }
 .steps-dots span { height: 4px; flex: 1; border-radius: 4px; background: var(--fill) }
 .steps-dots span.on { background: var(--grad) }
-.wz .card { margin-bottom: 18px }
+.wz .card { margin-bottom: 18px; padding: 22px 24px }
+.wz .panel { margin: 0 0 18px; padding: 22px 24px }
 .promises { list-style: none; padding: 0; margin: 0 0 30px }
 .promises li { padding: 14px 0; border-top: 1px solid var(--line); font-size: 15px }
 .promises li b { display: block; font-weight: 600 }
@@ -90,7 +91,7 @@ CSS = """
   border-radius: 20px; padding: 18px 20px; box-shadow: var(--shadow) }
 .choice:hover { box-shadow: 0 0 0 2px var(--accent), var(--shadow) }
 .choice b { display: block; font-size: 17px; font-weight: 600 }
-.choice span { color: var(--ink-2); font-size: 14px }
+.choice span { display: block; margin-top: 4px; color: var(--ink-2); font-size: 14px; line-height: 1.45 }
 .field { margin-bottom: 16px }
 .field label { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 5px }
 .field input { width: 100%; font: inherit; font-size: 15px; border: 1px solid rgba(0, 0, 0, .14); border-radius: 12px;
@@ -98,15 +99,29 @@ CSS = """
 .field input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(0, 113, 227, .18) }
 .field .help { font-size: 12.5px; color: var(--ink-2); margin-top: 5px }
 .field .found { color: #0058b0 }
-.nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 26px }
+.nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 28px }
+.nav > span { display: flex; gap: 8px }
 .nav .later { background: transparent; color: var(--accent) }
-.status-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid var(--line) }
-.status-row:first-child { border-top: 0 }
+.status-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line) }
+.status-row:first-child { border-top: 0; padding-top: 0 }
+.status-row:last-child { padding-bottom: 0 }
+.status-row > span { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end }
 .status-row b { font-weight: 600 }
 .problems { background: var(--hi); color: #8a2bb0; border-radius: 14px; padding: 10px 16px; font-size: 14px; margin-bottom: 16px }
-.demo-link { margin-top: 22px; font-size: 13.5px }
+.demo-link { margin-top: 22px; font-size: 13.5px; line-height: 1.5 }
 .demo-link button { font: inherit; border: 0; background: transparent; color: var(--accent); cursor: pointer; padding: 0 }
 .check { display: flex; gap: 10px; align-items: center; font-size: 14px; margin: 4px 0 16px }
+.howto { background: var(--card) }
+.howto-title { font-weight: 600; font-size: 15px; margin-bottom: 8px }
+.howto-steps { margin: 0; padding-left: 20px }
+.howto-steps li { padding: 5px 0; font-size: 14.5px; line-height: 1.5 }
+.tip { background: var(--soft); border-radius: 12px; padding: 9px 14px; font-size: 13.5px; margin: 12px 0 0 }
+.why { margin-top: 12px; font-size: 13.5px; color: var(--ink-2) }
+.why summary { cursor: pointer; color: var(--accent); list-style: none }
+.why summary::-webkit-details-marker { display: none }
+.why p { margin: 6px 0 0 }
+.pick { font-size: 14px; color: var(--ink-2); margin: 0 0 10px }
+.demo-link .note { color: var(--ink-2) }
 """
 
 _SCRIPT = """
@@ -177,6 +192,16 @@ def _field(name, label, value, help_text="", kind="text", placeholder=""):
             f"{helper}</div>")
 
 
+def _howto(title: str, steps: list[str], tips: list[str] | None = None, why: str = "") -> str:
+    """A "how to" card: numbered steps, then tips, then a fold-out reason."""
+    items = "".join(f"<li>{s}</li>" for s in steps)
+    tip = "".join(f'<p class="tip">{t}</p>' for t in tips or [])
+    fold = (f'<details class="why"><summary>Why this is needed</summary><p>{why}</p></details>'
+            if why else "")
+    return (f'<div class="card howto"><div class="howto-title">{_esc(title)}</div>'
+            f'<ol class="howto-steps">{items}</ol>{tip}{fold}</div>')
+
+
 def _start(ctx) -> str:
     return f"""
 <h1>Welcome to <span class="mark">Move-in triage</span></h1>
@@ -187,13 +212,18 @@ setting up, and fills RiseIO, Xfinity and the welcome email for you to check.</p
 <li><b>You press every final button.</b><span>Send, Save, Create and Confirm are always yours.</span></li>
 <li><b>Nothing leaves this Mac.</b><span>You sign in as yourself. The app never sees your passwords.</span></li>
 </ul>
+<p class="pick">Pick how to start:</p>
 <div class="choices">
 <button class="choice" data-action="setup_go" data-value="outlook"><b>Set up my property</b>
-<span>The first person at a property. About five minutes.</span></button>
+<span>For the first person at a property. You enter the property's details once, then can share
+them with teammates as a profile file. About five minutes.</span></button>
 <button class="choice" data-action="setup_import"><b>Join with a teammate's profile</b>
-<span>Choose the profile file a teammate shared. About one minute.</span></button>
+<span>A teammate already set it up and sent you a profile file. Choose that file and the property
+details fill in for you; you only sign in and confirm your name. About one minute.</span></button>
 </div>
-<div class="demo-link"><button data-action="setup_demo">Try it with demo data first</button></div>"""
+<div class="demo-link"><button data-action="setup_demo">Try it with demo data first</button>
+<span class="note"> Opens a separate practice board with made-up units. Nothing is signed in to and
+nothing real is changed. Quit it from its menu bar item when done.</span></div>"""
 
 
 def _outlook(ctx) -> str:
@@ -204,10 +234,18 @@ def _outlook(ctx) -> str:
     return f"""
 {_dots("outlook")}
 <h1>Sign in to <span class="mark">Outlook</span></h1>
-<p class="lede">The app reads mail through its own browser, signed in as you. Use your
-usual work sign-in there; the app never sees your password.</p>
+<p class="lede">The app reads your mail through its own browser window, signed in as you.</p>
+{_howto("What to do", [
+    "Press <b>Open Outlook</b>. A window called Move-in triage browser opens on the Email tab.",
+    "Sign in with your usual work account, including any code sent to your phone.",
+    "Wait until your inbox shows, then come back to this window.",
+    "Press <b>Check again</b> until it says Signed in, then press <b>Continue</b>.",
+], ["Already signed in? It can still say Checking for a few seconds while Outlook loads."],
+   "Lease emails arrive in Outlook. The app reads them in its own window instead of asking "
+   "for your password or for IT to set anything up, so it only ever sees what you can see.")}
 <div class="card"><div class="status-row"><b>Outlook</b>
-<span><span class="pill {pill}">{status}</span> {_btn("Open Outlook", "open_site", "outlook", kind="small")}</span></div></div>
+<span><span class="pill {pill}">{status}</span> {_btn("Open Outlook", "open_site", "outlook", kind="small")}
+{_btn("Check again", "setup_go", "outlook", kind="small")}</span></div></div>
 {_nav("start", _btn("Continue", "setup_go", "you", busy="Reading your account..."), False)}"""
 
 
@@ -226,8 +264,13 @@ def _you(ctx) -> str:
     return f"""
 {"" if edit else _dots("you")}
 <h1>About <span class="mark">you</span></h1>
-<p class="lede">Used to check the right Outlook account is signed in. It stays on this Mac
-and is never part of a shared profile.</p>
+<p class="lede">Your details stay on this Mac and are never part of a shared profile.</p>
+{_howto("What to do", [
+    "Check your name. It was suggested from your email address, so fix it if it's off.",
+    "Check your work email. It should be the account you just signed in to Outlook with.",
+    f"Press <b>{'Save' if edit else 'Continue'}</b>.",
+], why="Your email lets the app notice if Outlook is ever signed in as someone else, so it "
+       "never reads the wrong mailbox without telling you.")}
 <div class="card" id="you">
 {_field("name", "Your name", name, "Check this. It was suggested from your email address." if name and not you["name"] else "")}
 {_field("email", "Your work email", email, email_help, kind="email")}
@@ -248,6 +291,20 @@ def _property(ctx) -> str:
 {"" if edit else _dots("property")}
 <h1>Your <span class="mark">property</span></h1>
 <p class="lede">Shared by everyone at the property. Set it up once, then share it as a profile.</p>
+{_howto("What to do", [
+    "<b>Property name</b>: as it should appear in the welcome email subject, for example "
+    "Example Commons | Welcome Home #0735.",
+    "<b>Signature</b>: the team name the welcome email signs off with.",
+    "<b>Team Cc</b>: the shared mailbox copied on every welcome email. Leave it empty if there isn't one.",
+    "<b>Outlook folder</b>: the folder your lease emails are filed in, spelled exactly as in "
+    "Outlook's folder list. It says Found in Outlook once the name matches.",
+    "<b>Lease email senders</b>: everyone who sends the lease emails. Add each person's email "
+    "address, or their name exactly as Outlook shows it (Outlook often shows names only).",
+    f"Press <b>{'Save' if edit else 'Continue'}</b> at the bottom.",
+], ["Not sure who sends lease emails? Leave it for now: the board lists anyone it sees sending "
+    "lease emails who isn't on the list, with an Add button."],
+   "Only emails from the senders on this list are treated as new leases, so a reply or a "
+   "forward from anyone else never starts a move-in by mistake.")}
 <div class="card" id="property">
 {_field("name", "Property name", prop["name"], "Used in the welcome email subject.", placeholder="Example Commons")}
 {_field("signature", "Signature", prop["signature"], "The team name the welcome email signs off with.", placeholder="The Experience Team")}
@@ -274,9 +331,19 @@ def _systems(ctx) -> str:
     return f"""
 {"" if edit else _dots("systems")}
 <h1>Sign in to <span class="mark">RiseIO and Xfinity</span></h1>
-<p class="lede">Needed only for filling them in. Sign in with your own accounts; you can do
-this later from the board.</p>
-<div class="card">{"".join(rows) or '<div class="status-row">Checking...</div>'}</div>
+<p class="lede">Needed only when the app fills them in for you. You can do this later from the
+board's Open buttons.</p>
+{_howto("What to do", [
+    "Press <b>Open</b> next to RiseIO. The browser window switches to the RiseIO tab.",
+    "Sign in with your own RiseIO account.",
+    "Do the same for Xfinity.",
+    "Come back and press <b>Check again</b>, then <b>Continue</b>.",
+], ["The app fills in forms on these sites but never presses Save, Create or Confirm. "
+    "When it is your turn, the board says so and you press the button yourself."],
+   "New residents are added to RiseIO and Xfinity. Signing in here once lets the app fill "
+   "those forms in the same window you already trust.")}
+<div class="card">{"".join(rows) or '<div class="status-row">Checking...</div>'}
+<div class="status-row"><span></span>{_btn("Check again", "setup_go", "systems", kind="small")}</div></div>
 {_nav("property", nxt, edit)}"""
 
 
@@ -290,18 +357,21 @@ def _template(ctx) -> str:
     return f"""
 {"" if edit else _dots("template")}
 <h1>Your <span class="mark">welcome email</span></h1>
-<p class="lede">The app inserts your own Outlook template, exactly as it looks, and fills in
-the residents' names. Capture it once:</p>
-<div class="card">
-<ol class="promises" style="list-style: decimal; padding-left: 20px">
-<li>Open Outlook below and start a new message.</li>
-<li>Insert your Welcome template, leaving (Resident Name) as it is.</li>
-<li>Come back here and press Capture. The message is not sent; discard it afterwards.</li>
-</ol>
-<div class="status-row"><b>Template</b><span>{status}
+<p class="lede">The app uses your own Outlook template, exactly as it looks, and fills in the
+residents' names. Capture it once.</p>
+{_howto("What to do", [
+    "Press <b>Open Outlook</b> below and start a <b>New mail</b>.",
+    "Insert your Welcome template. In the new message it's under <b>My templates</b>, found in "
+    "the toolbar's More options menu or under Insert, depending on your Outlook layout.",
+    "Leave <b>(Resident Name)</b> exactly as it is. The app replaces it with the residents' first names.",
+    "Come back here and press <b>Capture</b>.",
+    "Discard that message in Outlook. Nothing was sent.",
+], ["No template yet? Press Later. The app uses a plain built-in welcome text until you capture one."],
+   "Copying a formatted email by hand breaks its layout. Capturing it from Outlook keeps it "
+   "exactly as you designed it, images and all.")}
+<div class="card"><div class="status-row"><b>Template</b><span>{status}
 {_btn("Open Outlook", "open_site", "outlook", kind="small")}
-{_btn("Capture", "setup_capture", kind="small dark", busy="Capturing...")}</span></div>
-</div>
+{_btn("Capture", "setup_capture", kind="small dark", busy="Capturing...")}</span></div></div>
 {_nav("systems", nxt, edit)}"""
 
 
@@ -312,12 +382,21 @@ def _done(ctx) -> str:
     return f"""
 {_dots("done")}
 <h1>You're <span class="mark">set up</span></h1>
-<p class="lede">The board opens next. It checks your Move ins folder every few minutes and
-shows which units need you.</p>
+<p class="lede">The board opens next, with a short Getting started guide at the top.</p>
+{_howto("How a move-in works from here", [
+    "The board checks your Move ins folder every few minutes and lists each new lease.",
+    "A unit marked <b>Needs outreach</b> is yours to do. Reply <b>On it</b> in the lease thread so "
+    "teammates know.",
+    "Press <b>Prepare</b> on it, check the residents' details, then <b>Start guided run</b>.",
+    "The app fills RiseIO, Xfinity and the welcome email. When a step says <b>Your turn</b>, "
+    "check it and press the final button yourself.",
+    "Reply in the lease thread that it's done. The unit then shows <b>Handled</b> for everyone.",
+])}
 <div class="card" id="share">
 <b>Share this setup with teammates</b>
 <p class="note" style="margin: 4px 0 12px">Saves a small profile file: property, lease senders and
-optionally the template. Never your name, email or sign-ins.</p>
+optionally the template. Never your name, email or sign-ins. Send it to a teammate; on their
+welcome page they choose <b>Join with a teammate's profile</b> and pick the file.</p>
 {include}
 {_btn("Save profile...", "setup_export", form="share", kind="")}
 </div>

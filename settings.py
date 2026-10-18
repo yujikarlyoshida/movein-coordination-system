@@ -81,6 +81,8 @@ def _defaults() -> dict:
         # Someone already running from a config_local.py is set up; a fresh
         # install, still on the placeholder property name, is not.
         "setup_complete": _text(getattr(config, "PROPERTY_NAME", "")) not in ("", "The Property"),
+        # The board's Getting started guide shows until it is hidden once.
+        "guide_hidden": False,
     }
 
 
@@ -96,6 +98,7 @@ def _clean(raw: dict) -> dict:
             "folder": _text(prop.get("folder")) or DEFAULT_FOLDER,
         },
         "setup_complete": bool(raw.get("setup_complete")),
+        "guide_hidden": bool(raw.get("guide_hidden")),
     }
 
 
@@ -165,6 +168,14 @@ def update(section: str, values: dict) -> tuple[dict, list[str]]:
     save(data)
     apply(data)
     return data, problems
+
+
+def set_guide_hidden(hidden: bool) -> dict:
+    """Hide or show the board's Getting started guide."""
+    data = load()
+    data["guide_hidden"] = bool(hidden)
+    save(data)
+    return data
 
 
 def mark_complete() -> dict:

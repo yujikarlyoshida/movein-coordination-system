@@ -153,6 +153,59 @@ def test_a_profile_is_summarised_before_import():
     assert menubar.profile_summary("nonsense") == ""
 
 
+def test_every_setup_step_says_what_to_do():
+    for step in ("outlook", "you", "property", "systems", "template"):
+        page = welcome.render(step, _ctx())
+        assert 'class="howto-steps"' in page, step
+        assert "What to do" in page, step
+    assert "Why this is needed" in welcome.render("outlook", _ctx())
+    assert "How a move-in works from here" in welcome.render("done", _ctx())
+
+
+def test_the_start_page_explains_each_choice():
+    text = _text(welcome.render("start", _ctx()))
+    assert "share them with teammates as a profile file" in text
+    assert "sent you a profile file" in text
+    assert "Nothing is signed in to and nothing real is changed" in text
+
+
+def _board(guide):
+    import board
+    import sample_data
+    import rules
+
+    with sample_data.fixture_config():
+        results = rules.evaluate(sample_data.MESSAGES)
+    return board.render(results, senders=SENDERS, connections=[], settings_button=True, guide=guide)
+
+
+def test_the_board_shows_getting_started_until_hidden():
+    page = _board(True)
+    text = _text(page)
+    assert "Getting started" in text and "Got it, hide this" in text
+    for words in ("What the statuses mean", "Doing a move-in", "Reply On it", "Start guided run",
+                  "Added to all platforms"):
+        assert words in text, words
+    assert set(re.findall(r'data-action="([^"]+)"', page)) <= window.BOARD_ACTIONS
+    hidden = _board(False)
+    assert "Getting started" not in _text(hidden) and 'data-action="guide_show"' in hidden
+    assert 'data-action="guide_show"' not in _board(None)
+
+
+def test_hiding_the_guide_is_remembered():
+    import settings
+
+    os.environ["MOVEIN_SETTINGS_PATH"] = str(_TMP / "settings-guide.json")
+    try:
+        assert settings.load()["guide_hidden"] is False
+        settings.set_guide_hidden(True)
+        assert settings.load()["guide_hidden"] is True
+        settings.set_guide_hidden(False)
+        assert settings.load()["guide_hidden"] is False
+    finally:
+        os.environ.pop("MOVEIN_SETTINGS_PATH", None)
+
+
 # ---------------------------------------------------------------------------
 # the scripts that read Outlook, in real WebKit
 # ---------------------------------------------------------------------------

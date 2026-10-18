@@ -28,9 +28,9 @@ CSS = """
 .sheet { max-width: 640px }
 .sheet h2 { font: 600 28px/1.15 -apple-system, "SF Pro Display", system-ui, sans-serif; letter-spacing: -.025em; margin: 0 0 10px }
 .verified { background: var(--soft); border-radius: 14px; padding: 9px 14px; font-size: 14px; margin-bottom: 18px }
-.resident { border-top: 1px solid var(--line); padding: 14px 0 6px }
+.resident { border-top: 1px solid var(--line); padding: 16px 0 10px }
 .resident h3 { font-size: 15px; margin: 0 0 10px; font-weight: 600 }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; align-items: start }
 .f label { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 3px }
 .f input { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; border: 1px solid rgba(0, 0, 0, .14); border-radius: 12px; padding: 8px 12px; background: var(--card); color: var(--ink) }
 .f input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(0, 113, 227, .18) }
@@ -40,10 +40,13 @@ CSS = """
 .f.err .bad { display: block } .f.err input { border-color: #9b2c1f }
 .confirmname { font-size: 13.5px; display: flex; gap: 8px; align-items: center; margin-top: 8px; background: var(--hi); border-radius: 12px; padding: 8px 12px }
 .steps { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 14px }
-.steps label { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; margin-bottom: 9px }
+.steps label { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; line-height: 1.45; margin-bottom: 10px }
 .steps .why { font-size: 12.5px; color: var(--ink-2) }
 .sendsmail { margin-left: 26px; font-size: 13.5px }
-.sheet .foot2 { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px }
+.sheet input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; margin: 3px 0 0; flex: none }
+.sheet .foot2 { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 20px;
+  padding-top: 16px; border-top: 1px solid var(--line) }
+.sheet .foot2 > span:last-child { display: flex; gap: 8px; flex: none }
 .sheet .fine { font-size: 12.5px; color: var(--ink-2) }
 .sheet .formerr { color: #9b2c1f; font-size: 13.5px; margin-top: 8px; min-height: 18px }
 .progress { list-style: none; padding: 0; margin: 14px 0 0 }

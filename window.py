@@ -37,7 +37,7 @@ BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing",
                  # The welcome page and Settings (welcome.py).
                  "open_settings", "setup_go", "setup_save_you", "setup_save_property", "setup_keep",
                  "setup_capture", "setup_export", "setup_import", "setup_demo", "setup_finish",
-                 "setup_close"}
+                 "setup_close", "guide_hide", "guide_show"}
 
 # Longest value each action may carry; anything longer is dropped, not cut.
 # A sender or unit is short; a settings form is a few fields; a confirmed sheet

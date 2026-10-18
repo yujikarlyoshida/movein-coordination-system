@@ -295,7 +295,8 @@ class TriageDelegate(NSObject):
             page = board.render(results, status=status, senders=senders.load(),
                                 unknown=unknown or [], notice=self._notice,
                                 acknowledged=self._acked, done_units=self._done,
-                                connections=self._connections, settings_button=not self.demo)
+                                connections=self._connections, settings_button=not self.demo,
+                                guide=self._guide_state())
             fd = os.open(self.board_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(page)
@@ -530,6 +531,16 @@ class TriageDelegate(NSObject):
         if action == "run":
             self.checkNow_(None)
             return
+        if action in ("guide_hide", "guide_show"):
+            import settings
+
+            if not self.demo:
+                settings.set_guide_hidden(action == "guide_hide")
+            else:
+                self._demo_guide_hidden = action == "guide_hide"
+            self._write_board(*self._board_args)
+            native_window.refresh_if_open(self.board_path)
+            return
         if action == "ack_missing":
             self._acked |= {k for k in value.split(",") if k}
             self._write_board(*self._board_args)
@@ -573,6 +584,16 @@ class TriageDelegate(NSObject):
             self._wake.set()
 
     # -- the welcome page and Settings ---------------------------------------
+
+    @objc.python_method
+    def _guide_state(self) -> bool:
+        """True to show the board's Getting started guide, False for a Help
+        button. Demo runs keep it in memory, never in the real settings."""
+        if self.demo:
+            return not getattr(self, "_demo_guide_hidden", False)
+        import settings
+
+        return not settings.load()["guide_hidden"]
 
     @objc.python_method
     def _account_warning(self) -> str:
@@ -980,6 +1001,8 @@ def main() -> None:
                         help="development: evaluate structure-only JS files dropped into DIR/<site>/")
     parser.add_argument("--practice", action="store_true",
                         help="sample data and practice systems: a full click-and-done test run")
+    parser.add_argument("--welcome", action="store_true",
+                        help="open the welcome page even when already set up (to walk through it)")
     args = parser.parse_args()
     if args.practice:
         args.demo = True
@@ -1032,7 +1055,7 @@ def main() -> None:
     delegate.startWorker()
 
     # First launch: the welcome page, in the board's window.
-    if not args.demo and settings.needs_setup():
+    if not args.demo and (args.welcome or settings.needs_setup()):
         delegate._setup = {"step": "start", "edit": False}
         delegate._write_setup()
         args.board = True

@@ -59,7 +59,7 @@ h1 {
 .lede { font-size: 19px; line-height: 1.42; color: var(--ink-2); margin: 0 0 36px; max-width: 640px }
 .rule { height: 3px; background: var(--grad); border-radius: 3px; margin: 0 0 32px; width: 120px }
 .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 32px }
-.card { background: var(--card); border-radius: 22px; padding: 18px 20px; box-shadow: var(--shadow) }
+.card { background: var(--card); border: 2px solid transparent; border-radius: 22px; padding: 18px 20px; box-shadow: var(--shadow) }
 .card.hot { border: 2px solid transparent;
   background: linear-gradient(var(--card), var(--card)) padding-box, var(--grad) border-box }
 .card .label { font-size: 13px; color: var(--ink-2) }
@@ -68,12 +68,12 @@ h1 {
 .table { background: var(--card); border-radius: 24px; overflow: hidden; box-shadow: var(--shadow) }
 table { width: 100%; border-collapse: collapse }
 th { text-align: left; font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 16px 22px 10px; border-bottom: 1px solid var(--line) }
-td { padding: 16px 22px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 14.5px }
+td { padding: 16px 22px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 14.5px; line-height: 24px }
 tr:last-child td { border-bottom: 0 }
-.unit a { color: var(--ink); font-weight: 600; font-size: 17px; text-decoration: none; font-variant-numeric: tabular-nums }
+.unit a { color: var(--ink); font-weight: 600; font-size: 17px; line-height: 24px; text-decoration: none; font-variant-numeric: tabular-nums }
 .unit a:hover { color: var(--accent) }
 .check { color: var(--ink) }
-.note { font-size: 13px; color: var(--ink-2); margin-top: 3px }
+.note { font-size: 13px; line-height: 1.45; color: var(--ink-2); margin-top: 4px }
 .pill { display: inline-block; font-size: 12.5px; font-weight: 600; padding: 5px 13px; border-radius: 999px; white-space: nowrap }
 .p-needs { background: var(--ink); color: #fff }
 .p-unclear { background: var(--hi); color: #8a2bb0 }
@@ -100,13 +100,15 @@ tr:last-child td { border-bottom: 0 }
 .addrow input { flex: 1; font: inherit; font-size: 14px; border: 1px solid rgba(0, 0, 0, .14); border-radius: 12px; padding: 9px 14px; background: var(--card); color: var(--ink) }
 .addrow input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(0, 113, 227, .18) }
 .seen { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line) }
-.seen .item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 14px }
+.seen .item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; font-size: 14px }
+.seen .item > span:last-child { display: flex; align-items: center; gap: 8px }
 .seen .hl { background: var(--hi); padding: 1px 6px; border-radius: 6px }
 .no-app .app-only { display: none }
 .sites { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px }
 .sites-label { font-size: 12px; color: var(--ink-2) }
-.p-missing { background: transparent; color: var(--ink); border: 1px dashed rgba(0, 0, 0, .3); margin-top: 6px; cursor: pointer }
-.gap { font-size: 13px; color: var(--ink); margin-top: 3px }
+.p-missing { background: transparent; color: var(--ink); border: 1px dashed rgba(0, 0, 0, .3); cursor: pointer }
+.stack { display: flex; flex-direction: column; align-items: flex-start; gap: 6px }
+.gap { font-size: 13px; line-height: 1.45; color: var(--ink); margin-top: 4px }
 .gap .blocks { color: var(--ink-2) }
 .veil { position: fixed; inset: 0; background: rgba(0, 0, 0, .28); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
   display: none; align-items: center; justify-content: center; padding: 24px; z-index: 10 }
@@ -118,13 +120,23 @@ tr:last-child td { border-bottom: 0 }
 .pop .unitgap { border-top: 1px solid var(--line); padding: 12px 0 }
 .pop .unitgap b { font-size: 17px }
 .pop .actions { display: flex; justify-content: flex-end; margin-top: 16px }
-.p-prepare { background: var(--accent); color: #fff; cursor: pointer; margin-left: 6px }
+.p-prepare { background: var(--accent); color: #fff; cursor: pointer }
 .p-done { background: var(--soft); color: #0058b0 }
+.guide { margin: 0 0 32px }
+.g-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 4px }
+.g-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 6px }
+.guide h3 { font-size: 14px; font-weight: 600; margin: 8px 0 8px }
+.g-status { display: grid; grid-template-columns: 148px 1fr; gap: 14px; align-items: start; font-size: 13.5px; padding: 7px 0 }
+.g-status .pill { text-align: center }
+.g-status span:last-child { color: var(--ink-2); line-height: 1.5; padding-top: 3px }
+.g-steps { margin: 0; padding-left: 20px; font-size: 13.5px }
+.g-steps li { padding: 4px 0; line-height: 1.5 }
 @media (max-width: 720px) {
   body { padding: 0 16px 40px } .top { margin: 0 -16px; padding: 10px 16px; flex-wrap: wrap }
   .top .status, .sites-label { display: none } .right { flex-wrap: wrap; gap: 8px }
   h1 { font-size: 34px; margin-top: 36px } .lede { font-size: 16px }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .g-cols { grid-template-columns: 1fr }
   th, td { padding: 12px 12px }
 }
 """ + confirm_sheet.CSS
@@ -234,14 +246,14 @@ def _row(result: Result, interactive: bool = False, done: bool = False) -> str:
     prepare = (f'<span class="pill p-prepare app-only" data-prepare="{_esc(result.unit)}" '
                'title="Review and carry out this unit">Prepare</span>'
                if interactive and not done and result.verdict is Verdict.NEEDS_OUTREACH else "")
-    missing_pill = ('<br><span class="pill p-missing" data-open-missing="1" '
+    missing_pill = ('<span class="pill p-missing" data-open-missing="1" '
                     'title="See what is missing">Missing info</span>') if gaps else ""
     return (
         f'<tr data-verdict="{_esc(result.verdict.value)}">'
         f'<td class="unit">{link}</td>'
         f"<td>{_esc(_move_in(result.move_in))}</td>"
         f'<td><div class="check">{_esc(check)}</div>{note_html}</td>'
-        f'<td><span class="pill {cls}">{_esc(label)}</span>{prepare}{missing_pill}</td>'
+        f'<td><div class="stack"><span class="pill {cls}">{_esc(label)}</span>{prepare}{missing_pill}</div></td>'
         "</tr>"
     )
 
@@ -338,6 +350,42 @@ _SCRIPT = """
 </script>"""
 
 
+def _guide() -> str:
+    """Getting started: what the statuses mean and how a move-in is done."""
+    statuses = "".join(
+        f'<div class="g-status"><span class="pill {css}">{_esc(label)}</span><span>{text}</span></div>'
+        for label, css, text in (
+            ("Needs outreach", "p-needs", "A new lease nobody outside leasing has replied to. It's yours to do."),
+            ("Check", "p-unclear", "Someone asked a question or said it isn't done yet, or the lease "
+                                   "couldn't be read. Open the thread and look."),
+            ("Handled", "p-handled", "A teammate replied in the thread, said it was added to all "
+                                     "platforms, or a welcome email went out. Nothing to do."),
+            ("Skipped, corporate", "p-skipped", "A company lease, handled outside this workflow."),
+        ))
+    steps = "".join(f"<li>{s}</li>" for s in (
+        "Pick a unit that <b>Needs outreach</b>. Reply <b>On it</b> in its lease thread so teammates "
+        "see it as Check instead of starting it too.",
+        "Press <b>Prepare</b>. Check each resident's details and fill in anything marked missing.",
+        "Press <b>Start guided run</b>. The app fills RiseIO, Xfinity and the welcome email in the "
+        "browser window.",
+        "When a step says <b>Your turn</b>, look over what was filled in, press the final button "
+        "(Create, Save or Send) yourself, then press <b>Done</b> on the sheet.",
+        "Reply in the lease thread that it's done, for example <b>Added to all platforms</b>. "
+        "On the next check the unit shows Handled for everyone.",
+    ))
+    return (
+        '<div class="panel guide"><div class="g-head"><h2>Getting started</h2>'
+        '<button class="btn small app-only" data-action="guide_hide">Got it, hide this</button></div>'
+        '<p class="sub">The board checks your Move ins folder every few minutes. Select a unit number '
+        "to open its thread in Outlook. Run check looks again right away.</p>"
+        f'<div class="g-cols"><div><h3>What the statuses mean</h3>{statuses}</div>'
+        f'<div><h3>Doing a move-in</h3><ol class="g-steps">{steps}</ol></div></div>'
+        '<p class="sub" style="margin:14px 0 0">Signed out of a site? Use the Email, RiseIO and '
+        "Xfinity buttons at the top. Settings changes your details, the property and the sender list. "
+        "Help brings this guide back.</p></div>"
+    )
+
+
 def _missing_popup(results: list[Result], acknowledged: set[str]) -> str:
     """The pop-up listing units that cannot be fully prepared. Opens on its own
     when something is new since the user last pressed Got it."""
@@ -371,7 +419,8 @@ def _missing_popup(results: list[Result], acknowledged: set[str]) -> str:
 def render(results: list[Result], operator: str = "", status: str = "",
            senders: dict | None = None, unknown: list | None = None, notice: str = "",
            acknowledged: set[str] | None = None, done_units: set[str] | None = None,
-           connections: list | None = None, settings_button: bool = False) -> str:
+           connections: list | None = None, settings_button: bool = False,
+           guide: bool | None = None) -> str:
     """
     The whole board as one HTML page.
 
@@ -433,6 +482,10 @@ def render(results: list[Result], operator: str = "", status: str = "",
             + "</span>")
     settings_html = ('<button class="btn small app-only" data-action="open_settings">Settings</button>'
                      if interactive and settings_button else "")
+    # Help brings the Getting started guide back once it has been hidden.
+    if interactive and guide is False:
+        settings_html = '<button class="btn small app-only" data-action="guide_show">Help</button>' + settings_html
+    guide_html = _guide() if interactive and guide else ""
     run_button = (browser_button + settings_html
                   + '<button class="btn dark app-only" data-action="run">Run check</button>'
                   if interactive else "")
@@ -464,6 +517,7 @@ def render(results: list[Result], operator: str = "", status: str = "",
 <h1>{_headline(len(needs), len(unclear))}</h1>
 <p class="lede">{_esc(lede)}</p>
 <div class="rule"></div>
+{guide_html}
 <div class="cards">{cards_html}</div>
 {table}
 {panel}
