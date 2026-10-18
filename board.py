@@ -371,7 +371,7 @@ def _missing_popup(results: list[Result], acknowledged: set[str]) -> str:
 def render(results: list[Result], operator: str = "", status: str = "",
            senders: dict | None = None, unknown: list | None = None, notice: str = "",
            acknowledged: set[str] | None = None, done_units: set[str] | None = None,
-           connections: list | None = None) -> str:
+           connections: list | None = None, settings_button: bool = False) -> str:
     """
     The whole board as one HTML page.
 
@@ -431,7 +431,10 @@ def render(results: list[Result], operator: str = "", status: str = "",
             + "".join(f'<button class="btn small" data-action="open_site" data-value="{key}">{label}</button>'
                       for key, label in (("outlook", "Email"), ("riseio", "RiseIO"), ("xfinity", "Xfinity")))
             + "</span>")
-    run_button = (browser_button + '<button class="btn dark app-only" data-action="run">Run check</button>'
+    settings_html = ('<button class="btn small app-only" data-action="open_settings">Settings</button>'
+                     if interactive and settings_button else "")
+    run_button = (browser_button + settings_html
+                  + '<button class="btn dark app-only" data-action="run">Run check</button>'
                   if interactive else "")
     notice_html = f'<div class="notice">{_esc(notice)}</div>' if notice else ""
     panel = _senders_panel(senders, unknown or []) if interactive else ""

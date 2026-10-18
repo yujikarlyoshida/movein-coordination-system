@@ -33,7 +33,17 @@ _handler = None
 
 # The only things a board page may ask for.
 BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing",
-                 "prepare", "confirm", "sheet_closed", "open_site", "guided_done", "guided_skip"}
+                 "prepare", "confirm", "sheet_closed", "open_site", "guided_done", "guided_skip",
+                 # The welcome page and Settings (welcome.py).
+                 "open_settings", "setup_go", "setup_save_you", "setup_save_property", "setup_keep",
+                 "setup_capture", "setup_export", "setup_import", "setup_demo", "setup_finish",
+                 "setup_close"}
+
+# Longest value each action may carry; anything longer is dropped, not cut.
+# A sender or unit is short; a settings form is a few fields; a confirmed sheet
+# (several residents' details as JSON) is longer, but never this long.
+_VALUE_LIMITS = {"confirm": 20000, "setup_save_you": 2000, "setup_save_property": 2000,
+                 "setup_keep": 2000, "setup_export": 200}
 
 # The practice systems window: where the runner fills the practice pages, in
 # view, so a test run can be watched. Separate from Outlook's window and from
@@ -77,9 +87,7 @@ def _message_handler():
                     return
                 body = message.body()
                 action = str(body.get("action", "") or "")
-                # Bounded: a sender or unit is short; a confirmed sheet (several
-                # residents' details as JSON) is longer, but never this long.
-                limit = 20000 if action == "confirm" else 200
+                limit = _VALUE_LIMITS.get(action, 200)
                 value = str(body.get("value", "") or "")
                 if len(value) > limit:
                     return

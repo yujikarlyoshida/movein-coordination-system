@@ -176,6 +176,11 @@ class TriageDelegate(NSObject):
         # shows from the start, before the first sign-in check.
         self._connections = None if self.demo else []
 
+        # The welcome page / Settings, when showing in the board's window:
+        # {"step", "edit", "notice", "problems", "detected_email",
+        #  "folder_found", "draft"}. None while the board is showing.
+        self._setup = None
+
         # A guided run's "your turn": set by the sheet's Done / Skip buttons.
         self._turn_done = threading.Event()
         self._turn_skip = threading.Event()
@@ -283,10 +288,14 @@ class TriageDelegate(NSObject):
 
         with self._board_lock:
             self._board_args = (results, status, unknown or [])
+            if self._setup is not None:
+                # The welcome page is showing: redrawn only by its own buttons,
+                # so a background check never wipes what is being typed.
+                return
             page = board.render(results, status=status, senders=senders.load(),
                                 unknown=unknown or [], notice=self._notice,
                                 acknowledged=self._acked, done_units=self._done,
-                                connections=self._connections)
+                                connections=self._connections, settings_button=not self.demo)
             fd = os.open(self.board_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(page)
@@ -356,6 +365,8 @@ class TriageDelegate(NSObject):
         last = menu_model.Snapshot(demo=False, folder=reader.folder)
         while True:
             delay = 20
+            # The folder from Settings, which can change while running.
+            reader.folder = getattr(config, "MAIL_FOLDER", reader.folder)
             if watcher.is_paused():
                 snap = replace(last, state="paused")
                 delay = config.REFRESH_INTERVAL_SECONDS
@@ -377,7 +388,7 @@ class TriageDelegate(NSObject):
                     self._remember(results, staging.collect(messages))
                     unknown = outlook_web.unknown_lease_senders(messages)
                     stamp = datetime.now().strftime("%I:%M %p").lstrip("0")
-                    self._notice = ""
+                    self._notice = self._account_warning()
                     self._write_board(results, f"Watching {reader.folder}, last check {stamp}", unknown)
                     snap = menu_model.Snapshot(
                         results=results, fetched_at=datetime.now(), state="watching",
@@ -426,8 +437,9 @@ class TriageDelegate(NSObject):
         elif snap.state == "watching":
             self._shown_for_sign_in = False
 
-        # Never reload the board under an open sheet: it would vanish mid-review.
-        if not self._sheet_open:
+        # Never reload the board under an open sheet (it would vanish mid-review)
+        # or under the welcome page (it redraws itself).
+        if not self._sheet_open and self._setup is None:
             try:
                 native_window.refresh_if_open(self.board_path)
             except Exception:
@@ -511,6 +523,10 @@ class TriageDelegate(NSObject):
         """
         import senders
 
+        if action.startswith("setup_") or action == "open_settings" or (
+                self._setup is not None and action in ("add_sender", "remove_sender", "open_site")):
+            self._setup_action(action, value)
+            return
         if action == "run":
             self.checkNow_(None)
             return
@@ -555,6 +571,217 @@ class TriageDelegate(NSObject):
             native_window.refresh_if_open(self.board_path)
         if changed:
             self._wake.set()
+
+    # -- the welcome page and Settings ---------------------------------------
+
+    @objc.python_method
+    def _account_warning(self) -> str:
+        """A board notice when Outlook is signed in as someone other than the
+        email in Settings. Empty when they match or either is unknown."""
+        import settings
+
+        mine = settings.load()["you"]["email"]
+        seen = self._outlook_account()
+        if mine and seen and seen != mine:
+            return ("Outlook is signed in as a different account than the one in Settings. "
+                    "Check you are reading the right mailbox.")
+        return ""
+
+    @objc.python_method
+    def _outlook_account(self) -> str:
+        """The signed-in address as Outlook shows it, or "" (read-only)."""
+        import outlook_web
+        import welcome
+
+        if self.webview is None:
+            return ""
+        try:
+            return (outlook_web.run_js(self.webview, welcome.ACCOUNT_JS, timeout=5) or {}).get("email", "")
+        except Exception:  # noqa: BLE001 -- not readable is the same as unknown
+            return ""
+
+    @objc.python_method
+    def _write_setup(self):
+        import senders
+        import settings
+        import welcome
+        import welcome_template
+
+        st = self._setup
+        data = settings.load()
+        for section, values in (st.get("draft") or {}).items():
+            data[section].update({k: v for k, v in values.items() if k in data[section]})
+        state = self.snapshot.state if self.snapshot else ""
+        ctx = {
+            "settings": data, "senders": senders.load(), "edit": st["edit"],
+            "notice": st.get("notice", ""), "problems": st.get("problems", []),
+            "outlook_state": {"signed_out": "signed_out", "watching": "signed_in"}.get(state, ""),
+            "detected_email": st.get("detected_email", ""), "folder_found": st.get("folder_found"),
+            "connections": self._connections or [], "template_captured": welcome_template.available(),
+        }
+        page = welcome.render(st["step"], ctx)
+        with self._board_lock:
+            fd = os.open(self.board_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(page)
+            os.chmod(self.board_path, 0o600)
+        native_window.refresh_if_open(self.board_path)
+
+    @objc.python_method
+    def _setup_go(self, step):
+        """Show a step, gathering what it displays first (read-only)."""
+        import json
+
+        import outlook_web
+        import settings
+        import welcome
+
+        st = self._setup
+        st.update(step=step, problems=[])
+        if step == "you":
+            st["detected_email"] = self._outlook_account()
+        elif step == "property":
+            st["folder_found"] = None
+            if self.webview is not None:
+                folder = settings.load()["property"]["folder"]
+                try:
+                    st["folder_found"] = bool((outlook_web.run_js(
+                        self.webview, welcome.FOLDER_JS % json.dumps(folder), timeout=5) or {}).get("found"))
+                except Exception:  # noqa: BLE001 -- unknown, not "missing"
+                    pass
+        elif step in ("systems", "outlook"):
+            self._check_connections(self.snapshot.state if self.snapshot else "")
+        self._write_setup()
+
+    @objc.python_method
+    def _setup_action(self, action, value):
+        """The welcome page's buttons, on the main thread."""
+        import json
+
+        import senders
+        import settings
+        import welcome
+        import welcome_template
+
+        if action == "open_settings":
+            self._setup = {"step": "you", "edit": True}
+            self._setup_go("you")
+            return
+        if self._setup is None:
+            return
+        st = self._setup
+        st["notice"] = ""
+
+        if action == "setup_go":
+            if value in welcome.STEPS:
+                self._setup_go(value)
+            return
+        if action == "open_site":
+            import browser
+
+            if value in browser.SITES:
+                browser.open_tab(value)
+                self._wake.set()
+            return
+        if action == "setup_keep":
+            # Typed on the property step but not saved yet, kept across the
+            # reload an Add sender causes. Memory only.
+            try:
+                st["draft"] = {"property": {k: str(v) for k, v in json.loads(value).items()}}
+            except (ValueError, AttributeError):
+                pass
+            return
+        if action in ("add_sender", "remove_sender"):
+            changed, st["notice"] = (senders.add if action == "add_sender" else senders.remove)(value)
+            if changed:
+                self._wake.set()
+            self._write_setup()
+            return
+        if action in ("setup_save_you", "setup_save_property"):
+            try:
+                values = {k: str(v) for k, v in json.loads(value).items()}
+            except (ValueError, AttributeError):
+                return
+            section = "you" if action == "setup_save_you" else "property"
+            _, st["problems"] = settings.update(section, values)
+            st.pop("draft", None)
+            if st["problems"]:
+                self._write_setup()
+                return
+            if section == "property":
+                self._wake.set()      # the folder may have changed
+            if st["edit"]:
+                self._setup_go(st["step"])
+                st["notice"] = "Saved."
+                self._write_setup()
+            else:
+                self._setup_go("property" if section == "you" else "systems")
+            return
+        if action == "setup_capture":
+            import outlook_web
+
+            try:
+                got = outlook_web.run_js(self.webview, welcome.CAPTURE_JS, timeout=10) or {}
+            except Exception:  # noqa: BLE001
+                got = {}
+            body = got.get("html", "") if got.get("ok") else ""
+            if not body:
+                st["notice"] = "No message is open in Outlook. Start a new message and insert your template first."
+            elif welcome_template.PLACEHOLDER not in body:
+                st["notice"] = ("That message has no (Resident Name) in it. Insert your Welcome template "
+                                "without changing the placeholder, then capture again.")
+            else:
+                welcome_template.save(body)
+                st["notice"] = "Template captured. You can discard that message in Outlook now."
+            self._write_setup()
+            return
+        if action == "setup_export":
+            include = value == "1"
+            if not include:
+                try:
+                    include = bool(json.loads(value).get("template"))
+                except (ValueError, AttributeError):
+                    pass
+            target = _save_panel("move-in-triage-profile.json")
+            if target:
+                settings.write_profile(target, include_template=include)
+                st["notice"] = "Profile saved. Send that file to teammates; it holds no personal details."
+            self._write_setup()
+            return
+        if action == "setup_import":
+            source = _open_panel()
+            if not source:
+                return
+            try:
+                with open(source, encoding="utf-8") as fh:
+                    profile = json.load(fh)
+            except (OSError, ValueError):
+                profile = None
+            summary = profile_summary(profile)
+            if not summary:
+                st["notice"] = "That file isn't a Move-in triage profile."
+            elif _confirm_alert("Import this profile?", summary, "Import"):
+                ok, st["notice"] = settings.import_profile(profile)
+                if ok:
+                    self._wake.set()
+                    if not st["edit"]:
+                        notice = st["notice"]
+                        self._setup_go("outlook")
+                        st["notice"] = notice
+            self._write_setup()
+            return
+        if action == "setup_demo":
+            import sys
+
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), "--demo", "--board"])
+            return
+        if action in ("setup_finish", "setup_close"):
+            if action == "setup_finish":
+                settings.mark_complete()
+            self._setup = None
+            self._write_board(*self._board_args)
+            native_window.refresh_if_open(self.board_path)
+            return
 
     # -- the confirmation sheet ---------------------------------------------
 
@@ -697,6 +924,52 @@ class TriageDelegate(NSObject):
         NSApplication.sharedApplication().terminate_(None)
 
 
+def _save_panel(name: str) -> str:
+    """macOS's own Save dialog; the chosen path, or "" if cancelled."""
+    from AppKit import NSModalResponseOK, NSSavePanel
+
+    panel = NSSavePanel.savePanel()
+    panel.setNameFieldStringValue_(name)
+    panel.setAllowedFileTypes_(["json"])
+    return str(panel.URL().path()) if panel.runModal() == NSModalResponseOK else ""
+
+
+def _open_panel() -> str:
+    """macOS's own Open dialog for a profile file; the path, or "" if cancelled."""
+    from AppKit import NSModalResponseOK, NSOpenPanel
+
+    panel = NSOpenPanel.openPanel()
+    panel.setAllowedFileTypes_(["json"])
+    panel.setAllowsMultipleSelection_(False)
+    return str(panel.URLs()[0].path()) if panel.runModal() == NSModalResponseOK else ""
+
+
+def profile_summary(profile) -> str:
+    """What a profile holds, in plain words, before anything is applied."""
+    import settings
+
+    if not isinstance(profile, dict) or profile.get("kind") != settings.PROFILE_KIND:
+        return ""
+    prop = profile.get("property") if isinstance(profile.get("property"), dict) else {}
+    roster = profile.get("senders") if isinstance(profile.get("senders"), dict) else {}
+    n = sum(len(v) for v in (roster.get("addresses"), roster.get("names")) if isinstance(v, list))
+    return (f"Property: {str(prop.get('name') or 'unnamed')[:80]}. "
+            f"{n} lease sender{'s' if n != 1 else ''}. "
+            f"Welcome template {'included' if profile.get('welcome_template_html') else 'not included'}. "
+            "This replaces the property settings on this Mac. Your name and email stay as they are.")
+
+
+def _confirm_alert(title: str, text: str, ok: str) -> bool:
+    from AppKit import NSAlert, NSAlertFirstButtonReturn
+
+    alert = NSAlert.alloc().init()
+    alert.setMessageText_(title)
+    alert.setInformativeText_(text)
+    alert.addButtonWithTitle_(ok)
+    alert.addButtonWithTitle_("Cancel")
+    return alert.runModal() == NSAlertFirstButtonReturn
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Move-in triage menu bar app")
     parser.add_argument("--demo", action="store_true", help="use sample data, no sign-in")
@@ -757,6 +1030,12 @@ def main() -> None:
                 NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, lambda _t, p=probe: p.tick())
 
     delegate.startWorker()
+
+    # First launch: the welcome page, in the board's window.
+    if not args.demo and settings.needs_setup():
+        delegate._setup = {"step": "start", "edit": False}
+        delegate._write_setup()
+        args.board = True
 
     if args.board:
         delegate.openBoard_(None)
