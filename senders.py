@@ -8,8 +8,9 @@ add a colleague. It now lives in a private file the board can change:
 
     {"addresses": ["leasing.manager@example.com"], "names": ["Leasing Lead"]}
 
-On first use the file is seeded from config (so whatever config_local.py lists
-today carries over), and from then on the file is the list. `apply()` puts it
+On first use the file is seeded from config_local.py when there is one (so an
+existing setup carries over); a fresh install starts empty. From then on the
+file is the list. `apply()` puts it
 into config.TRIGGER_SENDERS / config.TRIGGER_SENDER_NAMES, which is all the rest
 of the app reads.
 
@@ -62,8 +63,12 @@ def load() -> dict[str, list[str]]:
     """The list, seeding the file from config the first time."""
     p = path()
     if not p.exists():
-        data = {"addresses": _clean(config.TRIGGER_SENDERS),
-                "names": _clean(getattr(config, "TRIGGER_SENDER_NAMES", []))}
+        # Only a real local config is carried over. A fresh install's config
+        # holds placeholder example.com addresses, which would show up as
+        # senders nobody added.
+        seed = getattr(config, "HAS_LOCAL_CONFIG", True)
+        data = {"addresses": _clean(config.TRIGGER_SENDERS) if seed else [],
+                "names": _clean(getattr(config, "TRIGGER_SENDER_NAMES", [])) if seed else []}
         save(data)
         return data
     with open(p, encoding="utf-8") as fh:

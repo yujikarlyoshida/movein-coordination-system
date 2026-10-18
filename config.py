@@ -316,5 +316,8 @@ OUTPUT_HTML = "board.html"
 # is the intended behaviour rather than a bug.
 try:
     from config_local import *          # noqa: F401,F403
+    HAS_LOCAL_CONFIG = True
 except ImportError:
-    pass
+    # A fresh install. The example values above are placeholders, so nothing
+    # is seeded from them (see senders.load): the welcome page starts empty.
+    HAS_LOCAL_CONFIG = False

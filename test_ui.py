@@ -219,12 +219,17 @@ def test_move_in_dates_read_as_month_and_day():
 import senders  # noqa: E402
 
 
-def _fresh_senders():
+def _fresh_senders(local_config=True):
     """A new scratch list seeded from the pinned fixture config; config restored after."""
     p = senders.path()
     if p.exists():
         p.unlink()
-    return senders.load()
+    saved = getattr(config, "HAS_LOCAL_CONFIG", True)
+    config.HAS_LOCAL_CONFIG = local_config
+    try:
+        return senders.load()
+    finally:
+        config.HAS_LOCAL_CONFIG = saved
 
 
 def _restore_config():
@@ -237,6 +242,15 @@ def test_the_list_is_seeded_from_config_the_first_time():
         data = _fresh_senders()
         assert data == {"addresses": list(sample_data.FIXTURE_SENDERS), "names": []}
         assert senders.path().stat().st_mode & 0o777 == 0o600
+    finally:
+        _restore_config()
+
+
+def test_a_fresh_install_starts_with_no_senders():
+    # No config_local.py: the public example addresses are placeholders, not
+    # people, and must not appear as senders the user never added.
+    try:
+        assert _fresh_senders(local_config=False) == {"addresses": [], "names": []}
     finally:
         _restore_config()
 
