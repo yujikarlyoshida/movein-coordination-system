@@ -289,12 +289,13 @@ class OutlookWebReader:
     counted, because their age is unknown until they are opened.
     """
 
-    def __init__(self, webview, folder: str = FOLDER, max_opens: int = MAX_OPENS_PER_PASS,
+    def __init__(self, webview, folder: str | None = None, max_opens: int = MAX_OPENS_PER_PASS,
                  wait: float = 10.0, lookback_days: int | None = None, max_scrolls: int = 60):
         import config
 
         self.webview = webview
-        self.folder = folder
+        # The folder named in settings (config.MAIL_FOLDER), "Move ins" by default.
+        self.folder = folder or getattr(config, "MAIL_FOLDER", FOLDER)
         self.max_opens = max_opens
         self.wait = wait
         self.lookback_days = lookback_days or getattr(config, "LOOKBACK_DAYS", 30)

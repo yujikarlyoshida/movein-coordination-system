@@ -713,6 +713,7 @@ def main() -> None:
         args.board = True
 
     import senders
+    import settings
 
     if args.demo:
         import history
@@ -721,9 +722,12 @@ def main() -> None:
         history.use_throwaway_log()
         senders.use_throwaway()
         senders.save({"addresses": list(sample_data.FIXTURE_SENDERS), "names": []})
+        settings.use_throwaway()
     else:
-        # Your private list (seeded from config_local.py the first time).
+        # Your private list and settings (seeded from config_local.py the
+        # first time).
         senders.apply(senders.load())
+        settings.apply(settings.load())
 
     nsapp = NSApplication.sharedApplication()
 

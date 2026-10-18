@@ -273,6 +273,10 @@ WELCOME_CC = ""
 # Set to "graph" the moment credentials exist; nothing else changes.
 MAIL_SOURCE = "demo"
 
+# The Outlook folder lease emails are filed in. Set on the welcome page
+# (settings.py); this is only the default.
+MAIL_FOLDER = "Move ins"
+
 
 # ---------------------------------------------------------------------------
 # Runtime
