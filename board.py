@@ -30,65 +30,100 @@ from models import Result, Verdict
 
 MOTION_CSS = r"""
 /* ---- Motion -------------------------------------------------------------
-   Entrances play once per app session (the board redraws itself every few
-   minutes, and replaying them each time would be noise). After that, only
-   what changed moves: a new or changed unit's row glows briefly. Everything
-   here is switched off under System Settings > Accessibility > Reduce motion. */
+   Springy, but calm: things travel a short way and overshoot just a touch
+   before settling, like iOS. Movement runs on a spring curve; fading
+   runs on a plain ease, so nothing flickers past fully visible.
+
+   Entrances play the first time real results appear in a window (the board
+   redraws itself every few minutes, and replaying them each time would be
+   noise). After that only what changed moves: a new or changed unit's row
+   glows. Everything here is off under System Settings > Accessibility >
+   Reduce motion. */
 :root {
   --ease: cubic-bezier(.2, .7, .2, 1);
+  --spring: cubic-bezier(.34, 1.3, .64, 1);
   --grad-loop: linear-gradient(100deg, #e5317a 0%, #c13fd1 19%, #8a6ce8 33%, #4fb6f5 50%,
                                        #8a6ce8 67%, #c13fd1 81%, #e5317a 100%);
 }
-@keyframes rise { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: none } }
+/* A real spring (overshoot, then a smaller one back) where WebKit supports it. */
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --spring: linear(0, 0.009 1.5%, 0.037 3.1%, 0.142 6.4%, 0.462 13.7%, 0.725 20.8%, 0.893 28.3%,
+                     0.99 35.8%, 1.039 42.4%, 1.058 48.6%, 1.059 55.3%, 1.045 62.6%, 1.012 77.6%,
+                     0.998 92%, 1);
+  }
+}
+@keyframes lift { from { transform: translateY(28px) scale(.985) } to { transform: none } }
 @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
 @keyframes grow { from { transform: scaleX(0) } to { transform: scaleX(1) } }
-@keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.97) } to { opacity: 1; transform: none } }
+@keyframes pop { from { transform: translateY(24px) scale(.95) } to { transform: none } }
 @keyframes shimmer { from { background-position: 0% 50% } to { background-position: 200% 50% } }
 @keyframes ring { from { background-position: 0 0, 0% 50% } to { background-position: 0 0, 200% 50% } }
 @keyframes glow { 0% { background: var(--hi) } 100% { background: transparent } }
-@keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(193, 63, 209, .28) } 50% { box-shadow: 0 0 0 6px rgba(193, 63, 209, 0) } }
+@keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(193, 63, 209, .3) } 50% { box-shadow: 0 0 0 8px rgba(193, 63, 209, 0) } }
 
 /* The gradient words drift slowly, like the Siri wordmark. */
 .mark, .card.hot .n { background-image: var(--grad-loop); background-size: 200% auto; animation: shimmer 9s linear infinite }
 .card.hot { background: linear-gradient(var(--card), var(--card)) padding-box, var(--grad-loop) border-box;
   background-size: auto, 200% auto; animation: ring 9s linear infinite }
 
-/* First view: the page assembles from the top down. */
-.intro h1 { animation: rise .7s var(--ease) both }
-.intro .lede { animation: rise .7s var(--ease) .06s both }
-.intro .rule { transform-origin: left; animation: grow .9s var(--ease) .12s both }
-.intro .guide { animation: rise .7s var(--ease) .16s both }
-.intro .cards .card { animation: rise .7s var(--ease) both }
-.intro .cards .card:nth-child(1) { animation-delay: .2s }
-.intro .cards .card:nth-child(2) { animation-delay: .26s }
-.intro .cards .card:nth-child(3) { animation-delay: .32s }
-.intro .cards .card:nth-child(4) { animation-delay: .38s }
-.intro .card.hot { animation: rise .7s var(--ease) .2s both, ring 9s linear infinite }
-.intro .table { animation: rise .7s var(--ease) .44s both }
-.intro .panel:not(.guide) { animation: rise .7s var(--ease) .5s both }
-.intro .top { animation: fade .5s ease both }
+/* First view: the page springs together from the top down. */
+.intro h1, .intro .lede, .intro .guide, .intro .cards .card, .intro .table, .intro .panel:not(.guide) {
+  animation-name: lift, fade; animation-duration: 1.05s, .75s;
+  animation-timing-function: var(--spring), var(--ease); animation-fill-mode: both }
+.intro .lede { animation-delay: .1s }
+.intro .rule { transform-origin: left; animation: grow 1.1s var(--spring) .2s both }
+.intro .guide { animation-delay: .28s }
+.intro .cards .card:nth-child(1) { animation-delay: .36s }
+.intro .cards .card:nth-child(2) { animation-delay: .46s }
+.intro .cards .card:nth-child(3) { animation-delay: .56s }
+.intro .cards .card:nth-child(4) { animation-delay: .66s }
+.intro .card.hot { animation-name: lift, fade, ring; animation-duration: 1.05s, .75s, 9s;
+  animation-timing-function: var(--spring), var(--ease), linear; animation-iteration-count: 1, 1, infinite;
+  animation-delay: .36s, .36s, 0s; animation-fill-mode: both }
+.intro .table { animation-delay: .76s }
+.intro .panel:not(.guide) { animation-delay: .86s }
+.intro .top { animation: fade .8s ease both }
 
-/* Hover and press: things that can be clicked respond. */
-.card, .choice, .btn, .pill, .chip, tr { transition: transform .2s var(--ease), box-shadow .2s var(--ease), background-color .2s ease, filter .15s ease }
-.cards .card:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(0, 0, 0, .05), 0 14px 34px rgba(0, 0, 0, .09) }
-.choice:hover { transform: translateY(-2px) }
+/* Hover and press: things that can be clicked spring in response. */
+.card, .choice, .btn, .pill, .chip { transition: transform .5s var(--spring), box-shadow .4s var(--ease), background-color .25s ease, filter .15s ease }
+tr { transition: background-color .25s ease }
+.cards .card:hover { transform: translateY(-4px) scale(1.005); box-shadow: 0 4px 8px rgba(0, 0, 0, .05), 0 22px 44px rgba(0, 0, 0, .1) }
+.choice:hover { transform: translateY(-3px) }
+.btn:hover, .pill.p-prepare:hover, .p-missing:hover { transform: translateY(-2px) }
 tbody tr:hover { background-color: rgba(0, 0, 0, .018) }
-.p-prepare:hover, .p-missing:hover { transform: translateY(-1px) }
-.btn:active, .choice:active, .pill:active { transform: scale(.97) }
+.btn:active, .choice:active, .pill:active { transform: scale(.94); transition-duration: .15s }
 
 /* A unit that is new, or whose status changed, since the last look. */
-tr.fresh td { animation: glow 2.6s ease-out both }
+tr.fresh td { animation: glow 3.4s ease-out both }
 
-/* Pop-ups ease in rather than appearing. */
-.veil.open { animation: fade .2s ease both }
-.veil.open .pop { animation: pop .32s var(--ease) both }
+/* Pop-ups spring up into place. */
+.veil.open { animation: fade .35s ease both }
+.veil.open .pop { animation-name: pop, fade; animation-duration: .8s, .4s;
+  animation-timing-function: var(--spring), var(--ease); animation-fill-mode: both }
 
-/* The guided run's "Your turn" gently pulses until you act. */
-.progress li.your_turn { animation: nudge 2.2s ease-in-out infinite }
-.progress li { animation: fade .3s ease both }
+/* The guided run's "Your turn" pulses until you act. */
+.progress li.your_turn { animation: nudge 2.4s ease-in-out infinite }
+.progress li { animation: fade .5s ease both }
 
+/* Scrolling. Things spring in every time they come into view, from below
+   when scrolling down and from above when scrolling up; things already on
+   screen at load are left alone. The headline drifts back as it
+   scrolls away, and the top bar gains its edge once the page has moved.
+   Hidden states apply only while the script runs them ("scrolly" on the page),
+   so without it nothing is ever hidden. */
+.scrolly .reveal:not(.in) { opacity: 0; transform: translateY(40px) scale(.97) }
+.scrolly .reveal.from-above:not(.in) { transform: translateY(-40px) scale(.97) }
+.scrolly .reveal.in { transition: opacity .7s var(--ease), transform 1.1s var(--spring) }
+.scrolly .reveal.done { opacity: 1; transform: none; transition: none }
+.top { border-bottom-color: transparent; transition: border-color .3s ease, box-shadow .3s ease }
+.scrolled .top { border-bottom-color: var(--line); box-shadow: 0 1px 14px rgba(0, 0, 0, .06) }
+.scrolly h1, .scrolly .lede { transform: translateY(calc(var(--away, 0) * -24px)) scale(calc(1 - var(--away, 0) * .02));
+  transform-origin: left; opacity: calc(1 - var(--away, 0) * .5) }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important }
+  .scrolly .reveal:not(.in) { opacity: 1; transform: none }
+  .scrolly h1, .scrolly .lede { transform: none; opacity: 1 }
 }
 """
 
@@ -105,7 +140,7 @@ INTRO_HEAD = r"""<script>
   } catch (e) { root.classList.add('intro'); }
   // A safety net, not a timing: the entrance is over by now. If WebKit has
   // paused animations (a hidden window), never leave the page invisible.
-  setTimeout(function () { root.classList.remove('intro'); }, 1600);
+  setTimeout(function () { root.classList.remove('intro'); }, 2800);
 })();
 </script>"""
 
@@ -118,14 +153,14 @@ MOTION_BODY = r"""<script>
       if (!(end > 0)) return;
       var start = null;
       el.textContent = '0';
-      setTimeout(function () { el.textContent = String(end); }, 1600);
+      setTimeout(function () { el.textContent = String(end); }, 2800);
       function step(t) {
         if (start === null) start = t;
-        var p = Math.min(1, (t - start) / 700);
+        var p = Math.min(1, (t - start) / 1300);
         el.textContent = String(Math.round(end * (1 - Math.pow(1 - p, 3))));
         if (p < 1) requestAnimationFrame(step);
       }
-      setTimeout(function () { requestAnimationFrame(step); }, 250);
+      setTimeout(function () { requestAnimationFrame(step); }, 450);
     });
   }
   var now = {};
@@ -143,6 +178,61 @@ MOTION_BODY = r"""<script>
   var save = {};
   Object.keys(now).forEach(function (unit) { save[unit] = now[unit].verdict; });
   try { sessionStorage.setItem('movein-rows', JSON.stringify(save)); } catch (e) {}
+})();
+</script>"""
+
+SCROLL_JS = r"""<script>
+(function () {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var root = document.documentElement;
+  var targets = document.querySelectorAll(
+    'tbody tr, .panel, .wz > .card, .wz > .panel, .howto-steps li, .g-status, .g-steps li, .choice');
+  if (!targets.length) return;
+  // Whatever is already on screen at load stays put, so a refresh never blinks.
+  targets.forEach(function (el) {
+    el.classList.add('reveal');
+    if (el.getBoundingClientRect().top < window.innerHeight) el.classList.add('in', 'done');
+  });
+  root.classList.add('scrolly');
+  // Every time something comes into view it springs in, from below when
+  // scrolling down and from above when scrolling back up. Once it is fully
+  // off screen it resets, ready to spring in again. Checked by position on
+  // each scroll frame: a few dozen elements, and exact for table rows too.
+  function settle(el) {
+    // Settle for good (also the safety net if WebKit pauses transitions).
+    el._settle = setTimeout(function () { el.classList.add('done'); el.style.transitionDelay = ''; }, 2000);
+  }
+  function check() {
+    var h = window.innerHeight, arriving = 0;
+    targets.forEach(function (el) {
+      var b = el.getBoundingClientRect();
+      var shown = el.classList.contains('in');
+      if (!shown && b.top < h - 24 && b.bottom > 24) {
+        el.style.transitionDelay = (Math.min(arriving++, 6) * 70) + 'ms';
+        el.classList.add('in');
+        settle(el);
+      } else if (shown && (b.bottom < 0 || b.top > h)) {
+        clearTimeout(el._settle);
+        el.style.transitionDelay = '';
+        el.classList.remove('in', 'done');
+        el.classList.toggle('from-above', b.bottom < 0);
+      }
+    });
+  }
+  var ticking = false;
+  function onScroll() {
+    check();
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function () {
+      var y = window.scrollY || 0;
+      root.classList.toggle('scrolled', y > 8);
+      root.style.setProperty('--away', Math.min(1, y / 320).toFixed(3));
+      ticking = false;
+    });
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
 })();
 </script>"""
 
@@ -649,6 +739,7 @@ Select a unit to search Outlook for its thread.
 </div>
 {_SCRIPT if interactive else ""}
 {MOTION_BODY}
+{SCROLL_JS}
 {"<script>" + confirm_sheet.SCRIPT + "</script>" if interactive else ""}
 </body>
 </html>

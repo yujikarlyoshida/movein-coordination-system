@@ -211,11 +211,23 @@ def test_motion_switches_off_for_reduce_motion_and_never_hides_the_page():
     assert "prefers-reduced-motion: reduce" in page
     # The entrance is a class that a timer always removes, so a paused
     # animation can never leave the board invisible.
-    assert "classList.remove('intro')" in page and "1600" in page
+    assert "classList.remove('intro')" in page and "2800" in page
     # The count-up always lands on the real number.
     assert "el.textContent = String(end)" in page
     step = welcome.render("you", _ctx())
     assert 'class="intro"' in step and "classList.remove('intro')" in step
+
+
+def test_scroll_reveal_only_hides_while_its_script_runs():
+    import board
+
+    page = _board(True)
+    assert "getBoundingClientRect" in page and "root.classList.add('scrolly')" in page
+    # Hidden states are scoped to .scrolly, which only the script adds.
+    for rule in re.findall(r"[^{}]*opacity: 0[^}]*}", board.CSS):
+        if ".reveal" in rule:
+            assert ".scrolly" in rule
+    assert board.SCROLL_JS in welcome.render("property", _ctx())
 
 
 # ---------------------------------------------------------------------------

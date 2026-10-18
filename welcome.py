@@ -124,16 +124,19 @@ CSS = """
 .demo-link .note { color: var(--ink-2) }
 
 /* Each step slides in as it opens; the progress bar fills to the current step. */
-.intro .wz > * { animation: rise .6s var(--ease) both }
-.intro .wz > *:nth-child(2) { animation-delay: .04s }
-.intro .wz > *:nth-child(3) { animation-delay: .08s }
-.intro .wz > *:nth-child(4) { animation-delay: .12s }
-.intro .wz > *:nth-child(5) { animation-delay: .16s }
-.intro .wz > *:nth-child(6) { animation-delay: .2s }
-.intro .wz > *:nth-child(n+7) { animation-delay: .24s }
-.intro .steps-dots span.now { transform-origin: left; animation: grow .7s var(--ease) .1s both }
-.intro .choices .choice:nth-child(2) { animation: rise .6s var(--ease) .3s both }
-.intro .choices .choice:nth-child(1) { animation: rise .6s var(--ease) .24s both }
+.intro .wz > * { animation-name: lift, fade; animation-duration: 1s, .7s;
+  animation-timing-function: var(--spring), var(--ease); animation-fill-mode: both }
+.intro .wz > *:nth-child(2) { animation-delay: .08s }
+.intro .wz > *:nth-child(3) { animation-delay: .16s }
+.intro .wz > *:nth-child(4) { animation-delay: .24s }
+.intro .wz > *:nth-child(5) { animation-delay: .32s }
+.intro .wz > *:nth-child(6) { animation-delay: .4s }
+.intro .wz > *:nth-child(n+7) { animation-delay: .48s }
+.intro .steps-dots span.now { transform-origin: left; animation: grow 1s var(--spring) .2s both }
+.intro .choices .choice { animation-name: lift, fade; animation-duration: 1s, .7s;
+  animation-timing-function: var(--spring), var(--ease); animation-fill-mode: both }
+.intro .choices .choice:nth-child(1) { animation-delay: .5s }
+.intro .choices .choice:nth-child(2) { animation-delay: .62s }
 .why[open] p { animation: fade .25s ease both }
 """
 
@@ -457,7 +460,7 @@ def render(step: str, ctx: dict) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Move-in triage</title>
 <style>{board.CSS}{CSS}</style>
-<script>setTimeout(function () {{ document.documentElement.classList.remove('intro'); }}, 1600);</script>
+<script>setTimeout(function () {{ document.documentElement.classList.remove('intro'); }}, 2800);</script>
 </head>
 <body>
 <div class="wrap">
@@ -470,6 +473,7 @@ def render(step: str, ctx: dict) -> str:
 </div>
 </div>
 {_SCRIPT}
+{board.SCROLL_JS}
 </body>
 </html>
 """
