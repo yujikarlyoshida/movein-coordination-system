@@ -209,6 +209,10 @@ def export_profile(include_template: bool = True) -> dict:
     }
     if include_template and welcome_template.available():
         profile["welcome_template_html"] = welcome_template.load()
+    if has_logo():
+        import base64
+
+        profile["logo_png_base64"] = base64.b64encode(logo_path().read_bytes()).decode("ascii")
     return profile
 
 
@@ -245,6 +249,17 @@ def import_profile(profile: dict) -> tuple[bool, str]:
     template = profile.get("welcome_template_html", "")
     if template and (not isinstance(template, str) or len(template) > _MAX_TEMPLATE):
         return False, "The profile's welcome template is not readable."
+    logo = b""
+    if profile.get("logo_png_base64"):
+        import base64
+        import binascii
+
+        try:
+            logo = base64.b64decode(str(profile["logo_png_base64"]), validate=True)
+        except (binascii.Error, ValueError):
+            return False, "The profile's logo is not readable."
+        if not logo.startswith(_PNG) or len(logo) > _MAX_LOGO:
+            return False, "The profile's logo is not readable."
 
     data = load()
     data["property"] = _clean({"property": prop})["property"]
@@ -255,7 +270,10 @@ def import_profile(profile: dict) -> tuple[bool, str]:
     senders.apply()
     if template:
         welcome_template.save(template)
-    return True, "Profile imported." + (" Welcome template included." if template else "")
+    if logo:
+        save_logo(logo)
+    return True, ("Profile imported." + (" Welcome template included." if template else "")
+                  + (" Logo included." if logo else ""))
 
 
 def read_profile(source: Path) -> tuple[bool, str]:
@@ -264,3 +282,46 @@ def read_profile(source: Path) -> tuple[bool, str]:
     except (OSError, ValueError):
         return False, "That file couldn't be read as a profile."
     return import_profile(profile)
+
+
+# ---------------------------------------------------------------------------
+# The property's logo, shown in the middle of the pulsing badge
+# ---------------------------------------------------------------------------
+
+LOGO_NAME = "property-logo.png"
+_MAX_LOGO = 2_000_000
+_PNG = b"\x89PNG\r\n\x1a\n"
+
+
+def logo_path() -> Path:
+    """Beside settings.json: in the app, the folder the pages are served from,
+    so a page shows it by its bare name."""
+    return path().parent / LOGO_NAME
+
+
+def has_logo() -> bool:
+    p = logo_path()
+    return p.exists() and p.stat().st_size > 0
+
+
+def save_logo(data: bytes) -> tuple[bool, str]:
+    """Keep a PNG as the property's logo. Returns (ok, message for the page).
+    PNG only (a transparent wordmark reads best on the badge), at most 2 MB."""
+    if not data or not data.startswith(_PNG):
+        return False, "Choose a PNG image for the logo."
+    if len(data) > _MAX_LOGO:
+        return False, "That image is over 2 MB. Choose a smaller PNG."
+    p = logo_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(p, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    os.chmod(p, 0o600)
+    return True, "Logo saved."
+
+
+def remove_logo() -> None:
+    try:
+        logo_path().unlink()
+    except FileNotFoundError:
+        pass

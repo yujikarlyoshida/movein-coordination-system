@@ -299,7 +299,7 @@ class TriageDelegate(NSObject):
                                 unknown=unknown or [], notice=self._notice,
                                 acknowledged=self._acked, done_units=self._done,
                                 connections=self._connections, settings_button=not self.demo,
-                                guide=self._guide_state())
+                                guide=self._guide_state(), logo=self._has_logo())
             fd = os.open(self.board_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(page)
@@ -365,7 +365,11 @@ class TriageDelegate(NSObject):
         import staging
         import watcher
 
-        reader = outlook_web.OutlookWebReader(self.webview)
+        import browser
+
+        # Hands off Outlook while you are using it, or a guided run is.
+        reader = outlook_web.OutlookWebReader(
+            self.webview, hands_off=lambda: browser.outlook_in_use() or self._running)
         last = menu_model.Snapshot(demo=False, folder=reader.folder)
         while True:
             delay = 20
@@ -379,6 +383,13 @@ class TriageDelegate(NSObject):
                     records = reader.read_pass()
                 except outlook_web.SignedOut:
                     snap = replace(last, state="signed_out")
+                except outlook_web.InUse:
+                    # Stopped before touching anything; the last results stay
+                    # on the board. Look again shortly.
+                    snap = replace(last, state="in_use")
+                    delay = 5
+                    results, _, unknown = self._board_args
+                    self._board_args = (results, "Paused while you use Outlook. Close its window to resume.", unknown)
                 except (outlook_web.NotReady, TimeoutError):
                     snap = replace(last, state="loading")
                 except Exception as exc:  # noqa: BLE001 -- keep watching; say what broke
@@ -625,6 +636,25 @@ class TriageDelegate(NSObject):
             return ""
 
     @objc.python_method
+    def _has_logo(self) -> str:
+        """The logo's version tag for the pages ("" when there is none)."""
+        if self.demo:
+            return ""
+        import settings
+
+        return str(int(settings.logo_path().stat().st_mtime)) if settings.has_logo() else ""
+
+    @objc.python_method
+    def _outlook_sign_in(self, state: str) -> str:
+        """Signed in or not, from the Outlook tab's address as the background
+        check last saw it (the reader pauses while you have Outlook open, so
+        its own state can't say). Never asks the page from here."""
+        for key, _label, tab_state in self._connections or []:
+            if key == "outlook" and tab_state in ("signed_in", "signed_out"):
+                return tab_state
+        return {"signed_out": "signed_out", "watching": "signed_in"}.get(state, "")
+
+    @objc.python_method
     def _write_setup(self):
         import senders
         import settings
@@ -639,9 +669,10 @@ class TriageDelegate(NSObject):
         ctx = {
             "settings": data, "senders": senders.load(), "edit": st["edit"],
             "notice": st.get("notice", ""), "problems": st.get("problems", []),
-            "outlook_state": {"signed_out": "signed_out", "watching": "signed_in"}.get(state, ""),
+            "outlook_state": self._outlook_sign_in(state),
             "detected_email": st.get("detected_email", ""), "folder_found": st.get("folder_found"),
             "connections": self._connections or [], "template_captured": welcome_template.available(),
+            "logo": self._has_logo(),
         }
         page = welcome.render(st["step"], ctx)
         with self._board_lock:
@@ -662,20 +693,37 @@ class TriageDelegate(NSObject):
 
         st = self._setup
         st.update(step=step, problems=[])
-        if step == "you":
-            st["detected_email"] = self._outlook_account()
-        elif step == "property":
+        if step == "property":
             st["folder_found"] = None
-            if self.webview is not None:
+        # Draw the step at once with what is known; anything that has to ask
+        # Outlook is looked up off the main thread and the step redrawn when it
+        # answers. Waiting on a web view from inside a button's handler is what
+        # froze the windows.
+        self._write_setup()
+
+        def look_up():
+            if step == "you":
+                st["detected_email"] = self._outlook_account()
+            elif step == "property" and self.webview is not None:
                 folder = settings.load()["property"]["folder"]
                 try:
                     st["folder_found"] = bool((outlook_web.run_js(
                         self.webview, welcome.FOLDER_JS % json.dumps(folder), timeout=5) or {}).get("found"))
                 except Exception:  # noqa: BLE001 -- unknown, not "missing"
                     pass
-        elif step in ("systems", "outlook"):
-            self._check_connections(self.snapshot.state if self.snapshot else "")
-        self._write_setup()
+            elif step in ("systems", "outlook"):
+                self._check_connections(self.snapshot.state if self.snapshot else "")
+            else:
+                return
+            AppHelper.callAfter(self._redraw_setup, step)
+
+        threading.Thread(target=look_up, daemon=True).start()
+
+    @objc.python_method
+    def _redraw_setup(self, step):
+        """Main thread: redraw if that step is still the one showing."""
+        if self._setup is not None and self._setup.get("step") == step:
+            self._write_setup()
 
     @objc.python_method
     def _setup_action(self, action, value):
@@ -744,19 +792,38 @@ class TriageDelegate(NSObject):
         if action == "setup_capture":
             import outlook_web
 
-            try:
-                got = outlook_web.run_js(self.webview, welcome.CAPTURE_JS, timeout=10) or {}
-            except Exception:  # noqa: BLE001
-                got = {}
-            body = got.get("html", "") if got.get("ok") else ""
-            if not body:
-                st["notice"] = "No message is open in Outlook. Start a new message and insert your template first."
-            elif welcome_template.PLACEHOLDER not in body:
-                st["notice"] = ("That message has no (Resident Name) in it. Insert your Welcome template "
-                                "without changing the placeholder, then capture again.")
-            else:
-                welcome_template.save(body)
-                st["notice"] = "Template captured. You can discard that message in Outlook now."
+            def capture():
+                try:
+                    got = outlook_web.run_js(self.webview, welcome.CAPTURE_JS, timeout=10) or {}
+                except Exception:  # noqa: BLE001
+                    got = {}
+                body = got.get("html", "") if got.get("ok") else ""
+                if not body:
+                    st["notice"] = "No message is open in Outlook. Start a new message and insert your template first."
+                elif welcome_template.PLACEHOLDER not in body:
+                    st["notice"] = ("That message has no (Resident Name) in it. Insert your Welcome template "
+                                    "without changing the placeholder, then capture again.")
+                else:
+                    welcome_template.save(body)
+                    st["notice"] = "Template captured. You can discard that message in Outlook now."
+                AppHelper.callAfter(self._redraw_setup, "template")
+
+            threading.Thread(target=capture, daemon=True).start()
+            return
+        if action == "setup_logo":
+            source = _open_panel(["png"])
+            if source:
+                try:
+                    with open(source, "rb") as fh:
+                        data = fh.read(2_000_001)
+                except OSError:
+                    data = b""
+                _, st["notice"] = settings.save_logo(data)
+            self._write_setup()
+            return
+        if action == "setup_logo_remove":
+            settings.remove_logo()
+            st["notice"] = "Logo removed."
             self._write_setup()
             return
         if action == "setup_export":
@@ -958,12 +1025,12 @@ def _save_panel(name: str) -> str:
     return str(panel.URL().path()) if panel.runModal() == NSModalResponseOK else ""
 
 
-def _open_panel() -> str:
-    """macOS's own Open dialog for a profile file; the path, or "" if cancelled."""
+def _open_panel(types=("json",)) -> str:
+    """macOS's own Open dialog; the chosen path, or "" if cancelled."""
     from AppKit import NSModalResponseOK, NSOpenPanel
 
     panel = NSOpenPanel.openPanel()
-    panel.setAllowedFileTypes_(["json"])
+    panel.setAllowedFileTypes_(list(types))
     panel.setAllowsMultipleSelection_(False)
     return str(panel.URLs()[0].path()) if panel.runModal() == NSModalResponseOK else ""
 

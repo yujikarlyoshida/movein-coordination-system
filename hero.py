@@ -158,6 +158,10 @@ CSS = r"""
   animation: hero-spin 20s linear infinite }
 @keyframes hero-spin { from { transform: scale(1.6) rotate(0deg) } to { transform: scale(1.6) rotate(360deg) } }
 .hero-badge svg.ring text { font-size: 14px; font-weight: 500; fill: rgb(255 255 255 / .8) }
+/* The property's logo, still, in the middle of the spinning ring: drawn white
+   so any dark wordmark reads on the dark badge. */
+.hero-badge .badge-logo { position: absolute; left: 50%; top: 50%; width: 40px; height: auto; max-height: 24px;
+  object-fit: contain; transform: translate(-50%, -50%); filter: brightness(0) invert(1); z-index: 2; pointer-events: none }
 /* Entrances, as in the design. A timer drops "hero-in" once they are over, so
    a paused animation can never leave text invisible. */
 @keyframes hero-rise { from { opacity: 0; transform: translateY(var(--dy, 20px)) } to { opacity: 1; transform: none } }
@@ -226,7 +230,9 @@ def _sparks() -> str:
     design (20-80% across and down, up to 10 px sideways), 0.2 s apart."""
     import random
 
-    rnd = random.Random()
+    # Seeded: the same scatter on every redraw, so the header only counts as
+    # changed when something in it really did.
+    rnd = random.Random(7)
     return "".join(
         f'<span class="spark" style="left: {20 + rnd.random() * 60:.1f}%; top: {20 + rnd.random() * 60:.1f}%; '
         f'--sx: {rnd.random() * 20 - 10:.1f}px; animation-delay: {i * 0.2:.1f}s"></span>'
@@ -280,28 +286,35 @@ def heading(*, pill: str, line1: str, line2: str, line3: str, paragraph: str = "
             f'<span class="l3">{_esc(line3)}</span></h1>{para}{actions}')
 
 
-def badge() -> str:
-    """The pulsing border with its rotating ring of text."""
+LOGO_SRC = "property-logo.png"
+
+
+def badge(logo: str = "") -> str:
+    """The pulsing border with its rotating ring of text, and the property's
+    logo (settings.LOGO_NAME, beside the page) held still in the middle.
+    `logo` is a version tag (the file's save time), "" for none: a new image
+    gets a new address, so WebKit never shows a cached old one."""
+    mark = f'<img class="badge-logo" src="{LOGO_SRC}?v={_esc(logo)}" alt="">' if logo else ""
     return f"""<div class="hero-badge"><div class="wrap">
-<div class="ring-pb" data-pulsing="1"></div>
+<div class="ring-pb" data-pulsing="1"></div>{mark}
 <svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><defs>
 <path id="hero-circle" d="M 50, 50 m -38, 0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"></path></defs>
 <text><textPath href="#hero-circle" startOffset="0%" textLength="236" lengthAdjust="spacing">{_esc(RING_TEXT)}</textPath></text></svg>
 </div></div>"""
 
 
-def backdrop() -> str:
+def backdrop(logo: str = "") -> str:
     """The whole-window stage for an app page: the SVG filters, both mesh
     layers fixed behind everything, and the pulsing badge in the corner."""
     return (f'<div class="backdrop" aria-hidden="true">{DEFS}<div class="stage" data-mesh="0"></div>'
-            f'<div class="stage soft" data-mesh="1"></div></div>{badge()}')
+            f'<div class="stage soft" data-mesh="1"></div></div>{badge(logo)}')
 
 
 def render(*, pill: str, line1: str, line2: str, line3: str, paragraph: str,
            ghost: tuple[str, str, str], bright: tuple[str, str, str],
            nav: list[tuple[str, str, str]] | None = None,
            head_button: tuple[str, str, str] | None = None, full: bool = True,
-           interactive: bool = True) -> str:
+           interactive: bool = True, logo: str = "") -> str:
     """The full-window hero, as in the design (the welcome page's opening)."""
     return f"""<section class="hero {'full' if full else 'band'} hero-in" aria-label="Housewarm">
 {DEFS}
@@ -311,7 +324,7 @@ def render(*, pill: str, line1: str, line2: str, line3: str, paragraph: str,
 <div class="hero-main">
 {heading(pill=pill, line1=line1, line2=line2, line3=line3, paragraph=paragraph, ghost=ghost, bright=bright, interactive=interactive)}
 </div>
-{badge()}
+{badge(logo)}
 </section>"""
 
 
@@ -423,9 +436,9 @@ body > .hero-badge { position: fixed; bottom: 32px; right: 32px; z-index: 30 }
 .hero-badge .wrap { max-width: none; margin: 0 }
 
 /* Header: the design's, pinned; it gains a glass floor once the page moves. */
-body > .hero-head { position: sticky; top: 0; z-index: 40; margin: 0 -32px; padding: 24px 32px;
+#live > .hero-head { position: sticky; top: 0; z-index: 40; margin: 0 -32px; padding: 24px 32px;
   transition: background-color .3s ease, -webkit-backdrop-filter .3s ease }
-.scrolled body > .hero-head { background: rgb(0 0 0 / .45); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px) }
+.scrolled #live > .hero-head { background: rgb(0 0 0 / .45); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px) }
 .hero-nav button.on { color: #ffffff; background: rgb(255 255 255 / .12) }
 .hero-nav .sep { width: 1px; height: 16px; background: rgb(255 255 255 / .15); margin: 0 4px }
 .wrap { max-width: 1040px }
@@ -503,7 +516,7 @@ h1, h2, h3, .panel h2, .pop h2, .sheet h2 { color: #ffffff }
 
 @media (max-width: 720px) {
   body { padding: 0 16px 120px }
-  body > .hero-head { margin: 0 -16px; padding: 16px }
+  #live > .hero-head { margin: 0 -16px; padding: 16px }
   .page-hero .hero-h1, .wz .page-hero .hero-h1 { font-size: 44px }
   .page-hero .hero-h1 .l1, .wz .page-hero .hero-h1 .l1 { font-size: 30px }
   body > .hero-badge { right: 16px; bottom: 16px }

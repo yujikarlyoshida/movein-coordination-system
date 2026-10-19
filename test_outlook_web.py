@@ -376,6 +376,67 @@ def test_a_pass_opens_the_folder_and_reads_every_thread():
     assert _verdicts(records) == {"0512": Verdict.HANDLED, "0612": Verdict.NEEDS_OUTREACH}
 
 
+def test_the_reader_keeps_its_hands_off_while_you_use_outlook():
+    # Found live: the reader clicked through threads in the same tab while
+    # someone was composing, so their typing kept being interrupted.
+    if _skip_without_webkit():
+        return
+    import outlook_web
+
+    view = _load_page(FOLDER_PAGE)
+    reader = outlook_web.OutlookWebReader(view, wait=10, hands_off=lambda: True)
+    try:
+        reader.read_pass()
+        raise AssertionError("expected InUse")
+    except outlook_web.InUse:
+        pass
+    assert reader.last_opened == 0
+    # Selected nothing: the reading pane still shows no thread.
+    assert outlook_web.run_js(view, "JSON.stringify(!!document.querySelector('[role=option][aria-selected=true]'))") is False
+
+
+def test_a_pass_stops_midway_when_you_start_using_outlook():
+    if _skip_without_webkit():
+        return
+    import outlook_web
+
+    view = _load_page(FOLDER_PAGE)
+    calls = {"n": 0}
+
+    def hands_off():
+        calls["n"] += 1
+        return calls["n"] > 3          # you open Outlook partway through
+
+    reader = outlook_web.OutlookWebReader(view, wait=10, hands_off=hands_off)
+    try:
+        reader.read_pass()
+        raise AssertionError("expected InUse")
+    except outlook_web.InUse:
+        pass
+    assert reader.last_opened < 2       # it stopped before opening the rest
+    # And picks up normally once you're done.
+    reader.hands_off = lambda: False
+    reader.read_pass()
+    assert reader.last_opened + len(reader._threads) >= 2
+
+
+def test_outlook_counts_as_in_use_while_shown_and_briefly_after():
+    import time
+
+    import browser
+
+    saved = browser._outlook_seen_at
+    try:
+        browser._outlook_seen_at = 0.0
+        assert not browser.outlook_in_use()
+        browser._outlook_seen_at = time.monotonic()
+        assert browser.outlook_in_use()
+        browser._outlook_seen_at = time.monotonic() - browser.HANDS_OFF_GRACE_SECONDS - 1
+        assert not browser.outlook_in_use()
+    finally:
+        browser._outlook_seen_at = saved
+
+
 def test_unchanged_threads_are_not_reopened():
     # Opening is the one interaction with the page; a pass with nothing new
     # should not touch anything, yet still report the whole folder.

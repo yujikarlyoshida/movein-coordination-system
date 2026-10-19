@@ -271,6 +271,10 @@ class NotReady(Exception):
     """Outlook has not finished loading, or the folder is missing."""
 
 
+class InUse(Exception):
+    """You are using the Outlook tab: the pass stopped before touching it."""
+
+
 class OutlookWebReader:
     """
     Reads the Move ins folder from the window, one pass at a time.
@@ -290,12 +294,16 @@ class OutlookWebReader:
     """
 
     def __init__(self, webview, folder: str | None = None, max_opens: int = MAX_OPENS_PER_PASS,
-                 wait: float = 10.0, lookback_days: int | None = None, max_scrolls: int = 60):
+                 wait: float = 10.0, lookback_days: int | None = None, max_scrolls: int = 60,
+                 hands_off=None):
         import config
 
         self.webview = webview
         # The folder named in settings (config.MAIL_FOLDER), "Move ins" by default.
         self.folder = folder or getattr(config, "MAIL_FOLDER", FOLDER)
+        # Called before every click or scroll; True means you are using the
+        # Outlook tab, so the pass stops (InUse) and touches nothing more.
+        self.hands_off = hands_off or (lambda: False)
         self.max_opens = max_opens
         self.wait = wait
         self.lookback_days = lookback_days or getattr(config, "LOOKBACK_DAYS", 30)
@@ -350,8 +358,14 @@ class OutlookWebReader:
         dated = [m for m in mailsource.owa_messages(records) if rules.parse_received(m["received"])]
         return bool(dated) and not inside
 
+    def _yield_to_you(self) -> None:
+        if self.hands_off():
+            raise InUse("paused while you use Outlook")
+
     def read_pass(self) -> list[dict]:
-        """One pass. Returns raw extractor records for every thread in the window."""
+        """One pass. Returns raw extractor records for every thread in the window.
+        Raises InUse, having stopped cleanly, if you start using Outlook."""
+        self._yield_to_you()
         state = self.state()
         if state == "signed_out":
             raise SignedOut("signed out of Outlook; sign in again in the window")
@@ -375,6 +389,7 @@ class OutlookWebReader:
         self.stopped_by = "scroll limit"
         done = at_end = False
         for _ in range(self.max_scrolls):
+            self._yield_to_you()
             for row in self._js(_ROWS_JS):
                 conv = row["convId"]
                 if conv in seen:
@@ -384,6 +399,7 @@ class OutlookWebReader:
                 if cached and cached[0] == row["labelHash"]:
                     records = cached[1]
                 elif self.last_opened + self.skipped < self.max_opens:
+                    self._yield_to_you()
                     try:
                         records = self._open_and_extract(conv)
                     except NotReady:
@@ -412,6 +428,7 @@ class OutlookWebReader:
                 # The rows were read once more after the list stopped moving.
                 self.stopped_by = "end of list"
                 break
+            self._yield_to_you()
             if not self._js(_SCROLL_DOWN_JS)["moved"]:
                 # At the bottom. Rows can render a moment after the last scroll,
                 # so read once more before stopping rather than miss the last one.
@@ -423,7 +440,8 @@ class OutlookWebReader:
         if self.stopped_by in ("lookback window", "end of list") and not self.skipped:
             self._threads = {c: v for c, v in self._threads.items() if c in seen}
         self.threads_seen = len(seen)
-        self._js(_SCROLL_TOP_JS)
+        if not self.hands_off():
+            self._js(_SCROLL_TOP_JS)
         return [m for _, records in self._threads.values() for m in records]
 
 

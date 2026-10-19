@@ -209,21 +209,28 @@ MOTION_BODY = r"""<script>
       setTimeout(function () { requestAnimationFrame(step); }, 450);
     });
   }
-  var now = {};
-  document.querySelectorAll('tbody tr[data-verdict]').forEach(function (tr) {
-    var a = tr.querySelector('.unit a');
-    if (a) now[a.textContent.trim()] = { verdict: tr.dataset.verdict, row: tr };
-  });
-  var before = null;
-  try { before = JSON.parse(sessionStorage.getItem('movein-rows') || 'null'); } catch (e) {}
-  if (before) {
-    Object.keys(now).forEach(function (unit) {
-      if (before[unit] !== now[unit].verdict) now[unit].row.classList.add('fresh');
+  // Glow any row that is new or changed since the last look; runs at load and
+  // after every in-place update (window.__afterLive).
+  function markFresh() {
+    var now = {};
+    document.querySelectorAll('tbody tr[data-verdict]').forEach(function (tr) {
+      var a = tr.querySelector('.unit a');
+      if (a) now[a.textContent.trim()] = { verdict: tr.dataset.verdict, row: tr };
     });
+    var before = null;
+    try { before = JSON.parse(sessionStorage.getItem('movein-rows') || 'null'); } catch (e) {}
+    if (before) {
+      Object.keys(now).forEach(function (unit) {
+        if (before[unit] !== now[unit].verdict) now[unit].row.classList.add('fresh');
+      });
+    }
+    var save = {};
+    Object.keys(now).forEach(function (unit) { save[unit] = now[unit].verdict; });
+    try { sessionStorage.setItem('movein-rows', JSON.stringify(save)); } catch (e) {}
   }
-  var save = {};
-  Object.keys(now).forEach(function (unit) { save[unit] = now[unit].verdict; });
-  try { sessionStorage.setItem('movein-rows', JSON.stringify(save)); } catch (e) {}
+  markFresh();
+  var previous = window.__afterLive;
+  window.__afterLive = function () { markFresh(); if (previous) previous(); };
 })();
 </script>"""
 
@@ -683,7 +690,7 @@ def render(results: list[Result], operator: str = "", status: str = "",
            senders: dict | None = None, unknown: list | None = None, notice: str = "",
            acknowledged: set[str] | None = None, done_units: set[str] | None = None,
            connections: list | None = None, settings_button: bool = False,
-           guide: bool | None = None) -> str:
+           guide: bool | None = None, logo: str = "") -> str:
     """
     The whole board as one HTML page.
 
@@ -774,7 +781,8 @@ def render(results: list[Result], operator: str = "", status: str = "",
 {INTRO_HEAD}
 </head>
 <body>
-{hero.backdrop()}
+{hero.backdrop(logo)}
+<div id="live">
 {header_html}
 <div class="wrap">
 {notice_html}
@@ -790,6 +798,7 @@ Units and statuses only. Residents' names, email addresses and phone numbers sta
 Select a unit to search Outlook for its thread.
 </div>
 </div>
+<!--/live--></div>
 {_SCRIPT if interactive else ""}
 {MOTION_BODY}
 {SCROLL_JS}

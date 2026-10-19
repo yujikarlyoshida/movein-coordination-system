@@ -37,7 +37,7 @@ BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing",
                  # The welcome page and Settings (welcome.py).
                  "open_settings", "setup_go", "setup_save_you", "setup_save_property", "setup_keep",
                  "setup_capture", "setup_export", "setup_import", "setup_demo", "setup_finish",
-                 "setup_close", "guide_hide", "guide_show"}
+                 "setup_close", "guide_hide", "guide_show", "setup_logo", "setup_logo_remove"}
 
 # Longest value each action may carry; anything longer is dropped, not cut.
 # A sender or unit is short; a settings form is a few fields; a confirmed sheet
@@ -182,10 +182,66 @@ def show_board(html_path: str, title: str = "Housewarm", on_action=None) -> None
     NSApp.activateIgnoringOtherApps_(True)
 
 
+# Pages mark the part that changes between redraws: <div id="live"> ...
+# <!--/live--></div>. Everything else (the shader stage, the scripts) is the
+# shell. While the shell is unchanged a redraw swaps only the live part, so the
+# page never visibly reloads: the background keeps moving, and the scroll
+# position, focus and anything being typed are kept.
+LIVE_OPEN = '<div id="live">'
+LIVE_CLOSE = "<!--/live-->"
+_loaded_shell = None
+_loaded_live = None
+
+# Runs in the page: replace the live part, then put back what the person was
+# doing. %s is the new live HTML as a JSON string.
+_SWAP_JS = r"""(function (html) {
+  var live = document.getElementById('live');
+  if (!live) { location.reload(); return; }
+  var y = window.scrollY, typed = {}, focus = document.activeElement, sel = null;
+  live.querySelectorAll('input[id], textarea[id]').forEach(function (el) {
+    var edited = el.type === 'checkbox' ? el.checked !== el.defaultChecked : el.value !== el.defaultValue;
+    if (edited) typed[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  var focusId = focus && live.contains(focus) && focus.id ? focus.id : null;
+  if (focusId && focus.setSelectionRange) { try { sel = [focus.selectionStart, focus.selectionEnd]; } catch (e) {} }
+  live.innerHTML = html;
+  Object.keys(typed).forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = typed[id]; else el.value = typed[id];
+  });
+  if (focusId) {
+    var f = document.getElementById(focusId);
+    if (f) { f.focus(); if (sel && f.setSelectionRange) { try { f.setSelectionRange(sel[0], sel[1]); } catch (e) {} } }
+  }
+  window.scrollTo(0, y);
+  if (window.__afterLive) window.__afterLive();
+})(%s)"""
+
+
+def _split(page: str):
+    """(live part, shell) of a page; live is None when the page has none."""
+    i = page.find(LIVE_OPEN)
+    j = page.find(LIVE_CLOSE, i + 1) if i >= 0 else -1
+    if i < 0 or j < 0:
+        return None, page
+    return page[i + len(LIVE_OPEN):j], page[:i] + page[j:]
+
+
+def _remember(html_path: str) -> None:
+    global _loaded_shell, _loaded_live
+    try:
+        with open(html_path, encoding="utf-8") as fh:
+            _loaded_live, _loaded_shell = _split(fh.read())
+    except OSError:
+        _loaded_live = _loaded_shell = None
+
+
 def _reload(html_path: str) -> None:
     """Point the live window's webview at the current board file."""
     if _window is None:
         return
+    _remember(html_path)
 
     from Foundation import NSURL
 
@@ -243,11 +299,34 @@ def practice_webview():
 
 def refresh_if_open(html_path: str) -> None:
     """
-    Reload the window if it happens to be open; do nothing if it is not.
+    Bring the open window up to date with the file; do nothing if it is closed.
 
     Called after a background refresh so a window left open on a second monitor
-    updates itself instead of showing stale data.
+    updates itself instead of showing stale data. Nothing changed: nothing
+    happens. Only the live part changed: it is swapped in place. The page's
+    shell changed (another page altogether): a full load.
     """
+    global _loaded_live
+    if _window is None:
+        return
+    html_path = os.path.abspath(html_path)
+    try:
+        with open(html_path, encoding="utf-8") as fh:
+            live, shell = _split(fh.read())
+    except OSError:
+        return
+    if live is not None and shell == _loaded_shell and _loaded_live is not None:
+        if live != _loaded_live:
+            import json
+
+            run_board_js(_SWAP_JS % json.dumps(live))
+            _loaded_live = live
+        return
+    _reload(html_path)
+
+
+def reload_if_open(html_path: str) -> None:
+    """Load the page afresh (an image beside it changed; the HTML may not)."""
     if _window is not None:
         _reload(os.path.abspath(html_path))
 

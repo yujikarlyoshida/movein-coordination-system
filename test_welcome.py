@@ -61,10 +61,35 @@ def test_no_symbols_or_emoji_in_any_step():
 
 
 def test_the_start_page_offers_set_up_join_and_demo():
-    text = _text(welcome.render("start", _ctx()))
-    for words in ("Set up my property", "Join with a teammate's profile", "Try it with demo data first",
-                  "It only reads your mail", "You press every final button", "Nothing leaves this Mac"):
+    page = welcome.render("start", _ctx())
+    text = _text(page)
+    for words in ("Set up my property", "Join with a profile", "Try demo data"):
         assert words in text, words
+    for action in ('data-action="setup_go" data-value="outlook"', 'data-action="setup_import"', 'data-action="setup_demo"'):
+        assert action in page, action
+    # Nothing repeated under the hero: the promises come after choosing.
+    assert "It only reads your mail" not in text and 'class="wz"' not in page
+
+
+def test_the_logo_sits_in_the_badge_when_there_is_one():
+    import hero
+
+    assert "badge-logo" not in hero.badge()
+    mark = hero.badge("1700000000")
+    assert 'class="badge-logo" src="property-logo.png?v=1700000000"' in mark
+    assert 'src="property-logo.png?v=7"' in welcome.render("property", _ctx(edit=True, logo="7"))
+    assert "Choose PNG..." in welcome.render("property", _ctx(edit=True))
+
+
+def test_the_promises_follow_the_choice():
+    text = _text(welcome.render("outlook", _ctx()))
+    for words in ("Before you start", "It only reads your mail", "You press every final button", "Nothing leaves this Mac"):
+        assert words in text, words
+
+
+def test_a_notice_still_shows_on_the_start_page():
+    assert "Profile could not be read." in _text(
+        welcome.render("start", _ctx(notice="Profile could not be read.")))
 
 
 def test_your_email_comes_from_outlook_and_a_name_is_suggested():
@@ -162,11 +187,6 @@ def test_every_setup_step_says_what_to_do():
     assert "How a move-in works from here" in welcome.render("done", _ctx())
 
 
-def test_the_start_page_explains_each_choice():
-    text = _text(welcome.render("start", _ctx()))
-    assert "share them with teammates as a profile file" in text
-    assert "sent you a profile file" in text
-    assert "Nothing is signed in to and nothing real is changed" in text
 
 
 def _board(guide):

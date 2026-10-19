@@ -87,6 +87,8 @@ CSS = """
 .promises li { padding: 14px 0; border-top: 1px solid var(--line); font-size: 15px }
 .promises li b { display: block; font-weight: 600 }
 .promises li span { color: var(--ink-2); font-size: 14px }
+.promises-card .promises { margin: 0 }
+.promises-card .promises li:first-child { border-top: 0 }
 .choices { display: grid; gap: 12px }
 .choice { text-align: left; width: 100%; font: inherit; border: 0; cursor: pointer; background: var(--card);
   border-radius: 20px; padding: 18px 20px; box-shadow: var(--shadow) }
@@ -121,6 +123,7 @@ CSS = """
 .why summary { cursor: pointer; color: var(--accent); list-style: none }
 .why summary::-webkit-details-marker { display: none }
 .why p { margin: 6px 0 0 }
+.logo-preview { height: 22px; width: auto; filter: brightness(0) invert(1) }
 .pick { font-size: 14px; color: var(--ink-2); margin: 0 0 10px }
 .start-h { font: 600 28px/1.15 -apple-system, "SF Pro Display", system-ui, sans-serif; letter-spacing: -.02em; margin: 48px 0 12px }
 .demo-link .note { color: var(--ink-2) }
@@ -221,7 +224,7 @@ def _howto(title: str, steps: list[str], tips: list[str] | None = None, why: str
             f'<ol class="howto-steps">{items}</ol>{tip}{fold}</div>')
 
 
-def start_hero() -> str:
+def start_hero(logo: str = "") -> str:
     """The welcome page's opening: the full-window shader hero."""
     return hero.render(
         pill="New here? Setup takes about five minutes",
@@ -232,29 +235,26 @@ def start_hero() -> str:
         bright=("Set up my property", "setup_go", "outlook"),
         nav=[("Try demo data", "setup_demo", ""), ("Join with a profile", "setup_import", "")],
         head_button=("Set up", "setup_go", "outlook"),
-        full=True)
+        full=True, logo=logo)
 
 
 def _start(ctx) -> str:
-    return f"""
-<h2 class="start-h">Before you start</h2>
+    """Nothing under the hero: its buttons are the two choices. What the app
+    promises is shown on the first step after choosing (_promises)."""
+    return ""
+
+
+def _promises() -> str:
+    """The three promises, shown once a person has chosen how to start."""
+    return """
+<div class="card howto promises-card">
+<div class="howto-title">Before you start</div>
 <ul class="promises">
 <li><b>It only reads your mail.</b><span>Nothing in Outlook is moved, deleted or marked by the app.</span></li>
 <li><b>You press every final button.</b><span>Send, Save, Create and Confirm are always yours.</span></li>
 <li><b>Nothing leaves this Mac.</b><span>You sign in as yourself. The app never sees your passwords.</span></li>
 </ul>
-<p class="pick">Pick how to start:</p>
-<div class="choices">
-<button class="choice" data-action="setup_go" data-value="outlook"><b>Set up my property</b>
-<span>For the first person at a property. You enter the property's details once, then can share
-them with teammates as a profile file. About five minutes.</span></button>
-<button class="choice" data-action="setup_import"><b>Join with a teammate's profile</b>
-<span>A teammate already set it up and sent you a profile file. Choose that file and the property
-details fill in for you; you only sign in and confirm your name. About one minute.</span></button>
-</div>
-<div class="demo-link"><button data-action="setup_demo">Try it with demo data first</button>
-<span class="note"> Opens a separate practice board with made-up units. Nothing is signed in to and
-nothing real is changed. Quit it from its menu bar item when done.</span></div>"""
+</div>"""
 
 
 def _outlook(ctx) -> str:
@@ -266,6 +266,7 @@ def _outlook(ctx) -> str:
 {_dots("outlook")}
 <h1>Sign in to <span class="mark">Outlook</span></h1>
 <p class="lede">The app reads your mail through its own browser window, signed in as you.</p>
+{_promises()}
 {_howto("What to do", [
     "Press <b>Open Outlook</b>. A window called Housewarm browser opens on the Email tab.",
     "Sign in with your usual work account, including any code sent to your phone.",
@@ -342,6 +343,12 @@ def _property(ctx) -> str:
 {_field("welcome_cc", "Team Cc", prop["welcome_cc"], "Copied on every welcome email. Leave empty for none.", kind="email", placeholder="team@company.com")}
 {_field("folder", "Outlook folder", prop["folder"], folder_help)}
 </div>
+<div class="card"><div class="status-row"><b>Property logo</b><span>
+{f'<img class="logo-preview" src="property-logo.png?v={_esc(ctx.get("logo"))}" alt="Current logo">' if ctx.get("logo") else '<span class="pill p-skipped">None</span>'}
+{_btn("Choose PNG...", "setup_logo", kind="small")}
+{_btn("Remove", "setup_logo_remove", kind="small") if ctx.get("logo") else ""}</span></div>
+<p class="note" style="margin: 10px 0 0">Shown in the middle of the spinning badge, in white. A wordmark on a
+transparent background works best. It's included when you share a profile.</p></div>
 {senders_panel}
 {_nav("you", _btn("Save" if edit else "Continue", "setup_save_property", form="property"), edit)}"""
 
@@ -395,7 +402,8 @@ residents' names. Capture it once.</p>
     "Insert your Welcome template. In the new message it's under <b>My templates</b>, found in "
     "the toolbar's More options menu or under Insert, depending on your Outlook layout.",
     "Leave <b>(Resident Name)</b> exactly as it is. The app replaces it with the residents' first names.",
-    "Come back here and press <b>Capture</b>.",
+    "Come back here and press <b>Capture</b>. Housewarm stops reading your mail while the Outlook "
+    "window is open, so nothing moves under you while you work.",
     "Discard that message in Outlook. Nothing was sent.",
 ], ["No template yet? Press Later. The app uses a plain built-in welcome text until you capture one."],
    "Copying a formatted email by hand breaks its layout. Capturing it from Outlook keeps it "
@@ -477,14 +485,17 @@ def render(step: str, ctx: dict) -> str:
 <script>setTimeout(function () {{ document.documentElement.classList.remove('intro'); }}, 2800);</script>
 </head>
 <body>
-{start_hero() if step == "start" else hero.backdrop() + header_html}
-<div class="wrap">
+{start_hero(ctx.get("logo", "")) if step == "start" else hero.backdrop(ctx.get("logo", ""))}
+<div id="live">
+{"" if step == "start" else header_html}
+{"" if step == "start" and not (notice or problems) else f"""<div class="wrap">
 <div class="wz">
 {notice}
 {problems}
 {_PAGES[step](ctx)}
 </div>
-</div>
+</div>"""}
+<!--/live--></div>
 {_SCRIPT}
 {board.SCROLL_JS}
 {hero.script()}

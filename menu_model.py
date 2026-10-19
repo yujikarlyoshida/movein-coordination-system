@@ -105,6 +105,7 @@ def _state_line(snap: Snapshot) -> str:
         "starting": "Starting…",
         "watching": f"Watching {snap.folder}" + (" (demo)" if snap.demo else " · signed in"),
         "paused": "Paused. Nothing is being checked",
+        "in_use": "Paused while you use Outlook",
         "signed_out": "Signed out of Outlook",
         "loading": "Waiting for Outlook to load",
         "error": "Couldn't check the folder",

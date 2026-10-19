@@ -48,6 +48,12 @@ _status = None
 _controller = None
 _timer = None
 
+# When the window last showed the Outlook tab on screen (time.monotonic()).
+# The Move ins reader keeps its hands off Outlook while you are using it: it
+# clicks through threads in this same tab, which would fight your typing.
+_outlook_seen_at = 0.0
+HANDS_OFF_GRACE_SECONDS = 10.0
+
 
 def _controller_class():
     """The toolbar's target. Defined once: an Objective-C class can only be
@@ -76,9 +82,30 @@ def _controller_class():
 
         def tick_(self, _timer):
             _update_status()
+            _note_outlook_on_screen()
 
     _controller = BrowserToolbar.alloc().init()
     return _controller
+
+
+def _note_outlook_on_screen() -> None:
+    """Main thread, every second: remember if Outlook is showing to you."""
+    global _outlook_seen_at
+    import time
+
+    if _window is None or _current_name() != "outlook":
+        return
+    if _window.isVisible() and not _window.isMiniaturized():
+        _outlook_seen_at = time.monotonic()
+
+
+def outlook_in_use() -> bool:
+    """True while the Outlook tab is on screen, and for a few seconds after,
+    so switching windows briefly does not hand control back mid-sentence.
+    Safe from any thread: it only reads a timestamp."""
+    import time
+
+    return _outlook_seen_at > 0 and time.monotonic() - _outlook_seen_at < HANDS_OFF_GRACE_SECONDS
 
 
 def _current_name() -> str:
@@ -206,6 +233,7 @@ def open_tab(name: str):
     v = view(name)
     _tabs.selectTabViewItemWithIdentifier_(name)
     _window.makeKeyAndOrderFront_(None)
+    _note_outlook_on_screen()
     NSApp.activateIgnoringOtherApps_(True)
     _update_status()
     return v

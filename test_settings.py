@@ -29,11 +29,6 @@ os.environ.setdefault("MOVEIN_HISTORY_PATH", str(_TMP / "history.sqlite3"))
 
 import config  # noqa: E402
 
-config.TRIGGER_SENDERS = ["leasing.manager@example.com"]
-config.TRIGGER_SENDER_NAMES = ["Leasing Lead"]
-config.PROPERTY_NAME = "The Property"
-config.SIGNATURE = "The Experience Team"
-config.WELCOME_CC = ""
 
 import senders  # noqa: E402
 import settings  # noqa: E402
@@ -51,6 +46,12 @@ def setup_module(module=None):
     _SAVED.update({k: getattr(config, k, None) for k in _KEYS})
     _ENV.update({k: os.environ.get(k) for k in _PATHS})
     os.environ.update(_PATHS)
+    # Pinned only while this suite runs, so import order can't leak them.
+    config.TRIGGER_SENDERS = ["leasing.manager@example.com"]
+    config.TRIGGER_SENDER_NAMES = ["Leasing Lead"]
+    config.PROPERTY_NAME = "The Property"
+    config.SIGNATURE = "The Experience Team"
+    config.WELCOME_CC = ""
 
 
 def teardown_module(module=None):
@@ -201,6 +202,25 @@ def test_a_profile_saved_before_the_rename_still_imports():
     profile = dict(settings.export_profile(include_template=False), kind="movein-triage-profile")
     ok, message = settings.import_profile(profile)
     assert ok, message
+
+
+def test_the_logo_is_a_private_png_and_travels_in_profiles():
+    _set_up_property()
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+    assert settings.save_logo(b"GIF89a") == (False, "Choose a PNG image for the logo.")
+    assert not settings.has_logo()
+    ok, _ = settings.save_logo(png)
+    assert ok and settings.has_logo()
+    assert settings.logo_path().stat().st_mode & 0o777 == 0o600
+    profile = settings.export_profile(include_template=False)
+    assert profile["logo_png_base64"]
+    settings.remove_logo()
+    assert not settings.has_logo()
+    ok, message = settings.import_profile(profile)
+    assert ok and "Logo included" in message and settings.logo_path().read_bytes() == png
+    bad = dict(profile, logo_png_base64="not base64!")
+    assert settings.import_profile(bad)[0] is False
+    settings.remove_logo()
 
 
 def test_profile_sender_addresses_are_checked():
