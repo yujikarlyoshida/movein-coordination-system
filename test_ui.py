@@ -303,9 +303,22 @@ def test_in_app_board_has_run_button_sender_panel_and_bridge():
     assert "Lease email senders" in page
     assert 'data-action="remove_sender" data-value="leasing.manager@example.com"' in page
     assert 'data-action="add_sender" data-value="New Associate"' in page
-    assert "sent 3 lease emails the app is ignoring" in _text(page)
+    assert "New Associate sent 3 lease emails" in _text(page)
+    assert "3 lease emails not read yet" in _text(page)
     assert "Added the name. Checking again now." in _text(page)
     assert "window.webkit.messageHandlers.triage" in page
+
+
+def test_the_board_never_says_nothing_while_leases_go_unread():
+    # Found live: "Nothing needs you" while 16 lease emails from senders not
+    # on the list had never been looked at.
+    import board
+
+    assert board._hero_lines(0, 0, 0) == ("Nothing", "needs you", "right now")
+    assert board._hero_lines(0, 0, 16) == ("16 lease emails", "not read yet", "add their senders")
+    assert board._hero_lines(2, 0, 16)[1] == "need you"     # real work still comes first
+    page = _board(results=[], senders={"addresses": [], "names": []}, unknown=[("New Associate", 3)])
+    assert "Nothing needs you" not in _text(page)
 
 
 def test_plain_board_has_no_controls():

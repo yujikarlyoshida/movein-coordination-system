@@ -158,6 +158,10 @@ def menu_rows(snap: Snapshot) -> list:
             rows.append((f"{len(unclear)} to check", OPEN_BOARD, 0))
             _units(rows, unclear)
         rows.append((f"{len(snap.handled)} handled by a teammate", None, 0))
+        ignored = sum(n for _, n in snap.unknown_senders or [])
+        if ignored:
+            rows.append((f"{ignored} lease email{'s' if ignored != 1 else ''} from senders not on your list",
+                         OPEN_BOARD, 0))
         if snap.skipped:
             rows.append((f"{len(snap.skipped)} skipped, corporate", OPEN_BOARD, 0))
         rows.append(None)

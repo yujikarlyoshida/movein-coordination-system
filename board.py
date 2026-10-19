@@ -519,13 +519,36 @@ def _row(result: Result, interactive: bool = False, done: bool = False) -> str:
     )
 
 
-def _hero_lines(needs: int, unclear: int) -> tuple[str, str, str]:
-    """The headline in the hero's three-line shape."""
+def _hero_lines(needs: int, unclear: int, ignored: int = 0) -> tuple[str, str, str]:
+    """The headline in the hero's three-line shape. Never "Nothing needs you"
+    while lease emails are going unread for want of a sender on the list:
+    that would be quiet about work nobody has looked at."""
     if needs:
         return f'{needs} unit{"s" if needs != 1 else ""}', "need you", "right now"
     if unclear:
         return f'{unclear} lease{"s" if unclear != 1 else ""}', "to check", "when you can"
+    if ignored:
+        return f'{ignored} lease email{"s" if ignored != 1 else ""}', "not read yet", "add their senders"
     return "Nothing", "needs you", "right now"
+
+
+def _ignored_panel(unknown: list) -> str:
+    """Lease emails from people not on the sender list, at the top of the
+    board with an Add button each: until they are added, those leases are
+    not checked at all."""
+    if not unknown:
+        return ""
+    total = sum(n for _, n in unknown)
+    rows = "".join(
+        f'<div class="item"><span><span class="hl">{_esc(who)}</span> sent {n} lease '
+        f'email{"s" if n != 1 else ""}</span>'
+        f'<button class="btn small dark app-only" data-action="add_sender" data-value="{_esc(who)}">Add</button></div>'
+        for who, n in unknown
+    )
+    return (f'<div class="panel ignored"><h2>{total} lease email{"s" if total != 1 else ""} not read yet</h2>'
+            '<p class="sub">These came from people who are not on your lease sender list, so Housewarm '
+            "skipped them. Add the ones from your leasing team; their leases are checked straight away.</p>"
+            f'<div class="seen" style="border:0;padding:0;margin:0">{rows}</div></div>')
 
 
 def _headline(needs: int, unclear: int) -> str:
@@ -610,8 +633,9 @@ _SCRIPT = """
   document.addEventListener('click', function (e) {
     if (e.target.closest('[data-open-missing]')) document.getElementById('missing').classList.add('open');
   });
-  var form = document.getElementById('add');
-  if (form) form.addEventListener('submit', function (e) {
+  // On the document, not the form: the form is replaced on every live update.
+  document.addEventListener('submit', function (e) {
+    if (e.target.id !== 'add') return;
     e.preventDefault();
     var v = document.getElementById('sender').value.trim();
     if (v) send('add_sender', v);
@@ -754,7 +778,9 @@ def render(results: list[Result], operator: str = "", status: str = "",
     header_html = hero.header(nav, head_button, interactive)
     guide_html = _guide() if interactive and guide else ""
     notice_html = f'<div class="notice">{_esc(notice)}</div>' if notice else ""
-    panel = _senders_panel(senders, unknown or []) if interactive else ""
+    # Ignored senders sit at the top (ignored_html), not in the sender panel.
+    panel = _senders_panel(senders, []) if interactive else ""
+    ignored_html = _ignored_panel(unknown or []) if interactive else ""
     if interactive and connections:
         panel = _connections_panel(connections) + panel
     popup = _missing_popup(results, acknowledged or set()) if interactive else ""
@@ -765,7 +791,11 @@ def render(results: list[Result], operator: str = "", status: str = "",
 
     lede = ("Checked against every reply in the thread before anything is suggested. "
             "Read-only: nothing is sent, saved or changed in Outlook.")
-    l1, l2, l3 = _hero_lines(len(needs), len(unclear))
+    ignored = sum(n for _, n in (unknown or []))
+    l1, l2, l3 = _hero_lines(len(needs), len(unclear), ignored)
+    if ignored and not needs and not unclear:
+        lede = ("Some lease emails came from people who aren't on your sender list, so they "
+                "weren't checked. Add the ones from your leasing team below.")
     heading_html = hero.heading(
         pill=status_text, line1=l1, line2=l2, line3=l3, paragraph=lede,
         ghost=("Open Outlook", "open_site", "outlook"), bright=("Run check", "run", ""),
@@ -787,6 +817,7 @@ def render(results: list[Result], operator: str = "", status: str = "",
 <div class="wrap">
 {notice_html}
 <div class="page-hero hero-in">{heading_html}</div>
+{ignored_html}
 {guide_html}
 <div class="cards">{cards_html}</div>
 {table}

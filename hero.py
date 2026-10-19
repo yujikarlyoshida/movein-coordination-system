@@ -377,27 +377,44 @@ function springTo(el, s, scale) {
   from = from && from !== 'none' ? from : '1';
   el.animate([{ scale: from }, { scale: String(scale) }], { duration: s.duration, easing: s.easing, fill: 'forwards' });
 }
-hero.querySelectorAll('.hero-btn').forEach(function (b) {
-  b.addEventListener('mouseenter', function () { springTo(b, soft, 1.05); });
-  b.addEventListener('mouseleave', function () { springTo(b, soft, 1); });
-  b.addEventListener('mousedown', function () { springTo(b, soft, 0.95); });
-  b.addEventListener('mouseup', function () { springTo(b, soft, 1.05); });
+// Delegated from the document, so buttons and the logo keep their springs
+// after the page's live part is swapped in place.
+function over(e, sel) {
+  var el = e.target.closest && e.target.closest(sel);
+  if (!el) return null;
+  var from = e.relatedTarget;
+  return from && el.contains(from) ? null : el;
+}
+document.addEventListener('mouseover', function (e) {
+  var b = over(e, '.hero-btn'); if (b) springTo(b, soft, 1.05);
+  var l = over(e, '.hero-logo'); if (l) logoIn(l);
 });
-var logo = hero.querySelector('.hero-logo');
-if (logo) {
+document.addEventListener('mouseout', function (e) {
+  var el = e.target.closest && e.target.closest('.hero-btn, .hero-logo');
+  if (!el || (e.relatedTarget && el.contains(e.relatedTarget))) return;
+  if (el.classList.contains('hero-btn')) springTo(el, soft, 1); else logoOut(el);
+});
+document.addEventListener('mousedown', function (e) {
+  var b = e.target.closest && e.target.closest('.hero-btn'); if (b) springTo(b, soft, 0.95);
+});
+document.addEventListener('mouseup', function (e) {
+  var b = e.target.closest && e.target.closest('.hero-btn'); if (b) springTo(b, soft, 1.05);
+});
+function logoIn(logo) {
   var svg = logo.querySelector('svg'), path = logo.querySelector('.logo-path');
-  logo.addEventListener('mouseenter', function () {
+  (function () {
     springTo(logo, bouncy, 1.05);
     svg.animate([{ rotate: '0deg' }, { rotate: '-2deg' }, { rotate: '2deg' }, { rotate: '0deg' }], { duration: 600, easing: 'ease-in-out' });
     path.setAttribute('fill', 'url(#logo-gradient)');
     var len = path.getTotalLength ? path.getTotalLength() : 400;
     path.style.strokeDasharray = len; path.setAttribute('stroke', 'url(#logo-gradient)'); path.setAttribute('stroke-width', '1');
     path.animate([{ strokeDashoffset: 0 }, { strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: 1200, easing: 'ease-in-out' });
-  });
-  logo.addEventListener('mouseleave', function () {
-    springTo(logo, bouncy, 1);
-    path.removeAttribute('fill');
-  });
+  })();
+}
+function logoOut(logo) {
+  springTo(logo, bouncy, 1);
+  var path = logo.querySelector('.logo-path');
+  if (path) path.removeAttribute('fill');
 }
 })();
 </script>""")
@@ -504,6 +521,8 @@ tr[data-verdict="handled"] .unit a, tr[data-verdict="skipped_corporate"] .unit a
 .verified { background: rgb(6 182 212 / .14) !important; color: #cffafe }
 .confirmname, .progress li.your_turn { background: rgb(249 115 22 / .14) !important; color: #ffffff }
 .seen .hl { background: rgb(249 115 22 / .2) }
+.panel.ignored { margin: 0 0 32px; border: 1px solid rgb(249 115 22 / .45) !important;
+  box-shadow: 0 0 28px rgb(249 115 22 / .15), var(--shadow) }
 .found { color: #67e8f9 !important }
 .veil { background: rgb(0 0 0 / .55); z-index: 60 }
 .steps-dots span { background: rgb(255 255 255 / .12) }
