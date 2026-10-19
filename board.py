@@ -25,6 +25,7 @@ import urllib.parse
 from datetime import datetime
 
 import confirm_sheet
+import hero
 import triggers
 from models import Result, Verdict
 
@@ -511,6 +512,15 @@ def _row(result: Result, interactive: bool = False, done: bool = False) -> str:
     )
 
 
+def _hero_lines(needs: int, unclear: int) -> tuple[str, str, str]:
+    """The headline in the hero's three-line shape."""
+    if needs:
+        return f'{needs} unit{"s" if needs != 1 else ""}', "need you", "right now"
+    if unclear:
+        return f'{unclear} lease{"s" if unclear != 1 else ""}', "to check", "when you can"
+    return "Nothing", "needs you", "right now"
+
+
 def _headline(needs: int, unclear: int) -> str:
     if needs and unclear:
         return (f'{needs} unit{"s" if needs != 1 else ""} <span class="mark">need you</span>, '
@@ -726,22 +736,16 @@ def render(results: list[Result], operator: str = "", status: str = "",
 
     # Open browser: the app's own browser (Outlook, RiseIO, Xfinity tabs), from
     # the top of the board, whenever there are systems to sign in to.
-    browser_button = ""
+    # The design's header: sites as glass nav pills, Help once the guide is
+    # hidden, and Settings as the gooey pill button (Run check without it).
+    nav = []
     if interactive and connections is not None:
-        browser_button = (
-            '<span class="sites app-only"><span class="sites-label">Open</span>'
-            + "".join(f'<button class="btn small" data-action="open_site" data-value="{key}">{label}</button>'
-                      for key, label in (("outlook", "Email"), ("riseio", "RiseIO"), ("xfinity", "Xfinity")))
-            + "</span>")
-    settings_html = ('<button class="btn small app-only" data-action="open_settings">Settings</button>'
-                     if interactive and settings_button else "")
-    # Help brings the Getting started guide back once it has been hidden.
+        nav += [("Email", "open_site", "outlook"), ("RiseIO", "open_site", "riseio"), ("Xfinity", "open_site", "xfinity")]
     if interactive and guide is False:
-        settings_html = '<button class="btn small app-only" data-action="guide_show">Help</button>' + settings_html
+        nav.append(("Help", "guide_show", ""))
+    head_button = ("Settings", "open_settings", "") if settings_button else ("Run check", "run", "")
+    header_html = hero.header(nav, head_button, interactive)
     guide_html = _guide() if interactive and guide else ""
-    run_button = (browser_button + settings_html
-                  + '<button class="btn dark app-only" data-action="run">Run check</button>'
-                  if interactive else "")
     notice_html = f'<div class="notice">{_esc(notice)}</div>' if notice else ""
     panel = _senders_panel(senders, unknown or []) if interactive else ""
     if interactive and connections:
@@ -754,6 +758,11 @@ def render(results: list[Result], operator: str = "", status: str = "",
 
     lede = ("Checked against every reply in the thread before anything is suggested. "
             "Read-only: nothing is sent, saved or changed in Outlook.")
+    l1, l2, l3 = _hero_lines(len(needs), len(unclear))
+    heading_html = hero.heading(
+        pill=status_text, line1=l1, line2=l2, line3=l3, paragraph=lede,
+        ghost=("Open Outlook", "open_site", "outlook"), bright=("Run check", "run", ""),
+        interactive=interactive)
 
     return f"""<!DOCTYPE html>
 <html lang="en"{' data-ready="1"' if results else ""}>
@@ -761,16 +770,15 @@ def render(results: list[Result], operator: str = "", status: str = "",
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Housewarm</title>
-<style>{CSS}</style>
+<style>{CSS}{hero.CSS}{hero.THEME_CSS}</style>
 {INTRO_HEAD}
 </head>
 <body>
+{hero.backdrop()}
+{header_html}
 <div class="wrap">
-<div class="top"><div class="brand">Housewarm</div><div class="right"><div class="status">{_esc(status_text)}</div>{run_button}</div></div>
 {notice_html}
-<h1>{_headline(len(needs), len(unclear))}</h1>
-<p class="lede">{_esc(lede)}</p>
-<div class="rule"></div>
+<div class="page-hero hero-in">{heading_html}</div>
 {guide_html}
 <div class="cards">{cards_html}</div>
 {table}
@@ -785,6 +793,7 @@ Select a unit to search Outlook for its thread.
 {_SCRIPT if interactive else ""}
 {MOTION_BODY}
 {SCROLL_JS}
+{hero.script()}
 {"<script>" + confirm_sheet.SCRIPT + "</script>" if interactive else ""}
 </body>
 </html>

@@ -92,6 +92,9 @@ def resolve_output_path() -> str:
     """
     support = os.path.expanduser("~/Library/Application Support/MoveInTriage")
     os.makedirs(support, exist_ok=True)
+    import hero
+
+    hero.install(support)     # the shader bundle the board and welcome page load
     return os.path.join(support, BOARD_FILENAME)
 
 

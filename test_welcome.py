@@ -49,7 +49,7 @@ def _text(page):
 def test_every_step_renders_with_known_actions_only():
     for step in welcome.STEPS:
         page = welcome.render(step, _ctx())
-        assert "<h1>" in page, step
+        assert "<h1" in page, step
         actions = set(re.findall(r'data-action="([^"]+)"', page))
         assert actions <= window.BOARD_ACTIONS, (step, actions - window.BOARD_ACTIONS)
 

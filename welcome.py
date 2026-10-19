@@ -27,6 +27,7 @@ import html
 import re
 
 import board
+import hero
 
 STEPS = ("start", "outlook", "you", "property", "systems", "template", "done")
 EDIT_STEPS = ("you", "property", "systems", "template")
@@ -121,6 +122,7 @@ CSS = """
 .why summary::-webkit-details-marker { display: none }
 .why p { margin: 6px 0 0 }
 .pick { font-size: 14px; color: var(--ink-2); margin: 0 0 10px }
+.start-h { font: 600 28px/1.15 -apple-system, "SF Pro Display", system-ui, sans-serif; letter-spacing: -.02em; margin: 48px 0 12px }
 .demo-link .note { color: var(--ink-2) }
 
 /* Each step slides in as it opens; the progress bar fills to the current step. */
@@ -219,11 +221,23 @@ def _howto(title: str, steps: list[str], tips: list[str] | None = None, why: str
             f'<ol class="howto-steps">{items}</ol>{tip}{fold}</div>')
 
 
+def start_hero() -> str:
+    """The welcome page's opening: the full-window shader hero."""
+    return hero.render(
+        pill="New here? Setup takes about five minutes",
+        line1="Every new", line2="Resident,", line3="welcomed.",
+        paragraph=("Housewarm watches your Move ins folder, tells you which new residents still need "
+                   "setting up, and fills RiseIO, Xfinity and the welcome email for you to check."),
+        ghost=("Join with a profile", "setup_import", ""),
+        bright=("Set up my property", "setup_go", "outlook"),
+        nav=[("Try demo data", "setup_demo", ""), ("Join with a profile", "setup_import", "")],
+        head_button=("Set up", "setup_go", "outlook"),
+        full=True)
+
+
 def _start(ctx) -> str:
     return f"""
-<h1>Welcome to <span class="mark">Housewarm</span></h1>
-<p class="lede">It watches your Move ins folder, tells you which new residents still need
-setting up, and fills RiseIO, Xfinity and the welcome email for you to check.</p>
+<h2 class="start-h">Before you start</h2>
 <ul class="promises">
 <li><b>It only reads your mail.</b><span>Nothing in Outlook is moved, deleted or marked by the app.</span></li>
 <li><b>You press every final button.</b><span>Send, Save, Create and Confirm are always yours.</span></li>
@@ -440,32 +454,31 @@ def render(step: str, ctx: dict) -> str:
     if step not in _PAGES:
         step = "start"
     edit = ctx.get("edit", False)
-    tabs = ""
+    # The design's header. In Settings: one glass nav pill per section (the
+    # open one lit), Export and Import, and Back to board as the gooey button.
     if edit:
-        tabs = '<span class="sites">' + "".join(
-            f'<button class="btn small{" dark" if s == step else ""}" data-action="setup_go" '
-            f'data-value="{s}">{_esc(_TITLES[s])}</button>' for s in EDIT_STEPS) + "</span>"
-        tabs += (_btn("Export profile...", "setup_export", "1", kind="small")
-                 + _btn("Import profile...", "setup_import", kind="small"))
+        nav = [(_TITLES[x], "setup_go", x, x == step) for x in EDIT_STEPS]
+        nav += [("Export profile...", "setup_export", "1"), ("Import profile...", "setup_import", "")]
+        header_html = hero.header(nav, ("Back to board", "setup_close", ""))
+    else:
+        header_html = hero.header([("Try demo data", "setup_demo", "")])
     notice = f'<div class="notice">{_esc(ctx["notice"])}</div>' if ctx.get("notice") else ""
     problems = ""
     if ctx.get("problems"):
         problems = '<div class="problems">' + "<br>".join(
             _esc(p[:1].upper() + p[1:] + ".") for p in ctx["problems"]) + "</div>"
-    title = "Settings" if edit else "Welcome"
     return f"""<!DOCTYPE html>
 <html lang="en" class="intro">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Housewarm</title>
-<style>{board.CSS}{CSS}</style>
+<style>{board.CSS}{CSS}{hero.CSS}{hero.THEME_CSS}</style>
 <script>setTimeout(function () {{ document.documentElement.classList.remove('intro'); }}, 2800);</script>
 </head>
 <body>
+{start_hero() if step == "start" else hero.backdrop() + header_html}
 <div class="wrap">
-<div class="top"><div class="brand">Housewarm <span class="status">{title}</span></div>
-<div class="right">{tabs}</div></div>
 <div class="wz">
 {notice}
 {problems}
@@ -474,6 +487,7 @@ def render(step: str, ctx: dict) -> str:
 </div>
 {_SCRIPT}
 {board.SCROLL_JS}
+{hero.script()}
 </body>
 </html>
 """
