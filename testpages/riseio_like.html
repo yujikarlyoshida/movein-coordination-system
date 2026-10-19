@@ -3,20 +3,22 @@
 <style>.modal{display:none;border:1px solid #888;padding:12px}.modal.on{display:block}#form{display:none}</style></head>
 <body>
 <!-- Test fixture only. Shaped like what the read-only probes found on RiseIO:
-     AngularJS ng-model bindings, a ui-sref "Add Resident" link, birthday as three
-     selects, ACCOUNT ACTIVATION ticked by default, a "Create New Resident" span
-     inside a button, then a Move into Unit dialog. Fictional, saves nothing. -->
+     AngularJS data-ng-model bindings (as the live page writes them), a ui-sref "Add Resident" link, birthday as three
+     selects, ACCOUNT ACTIVATION ticked by default, "Create New Resident" as a
+     div bound to postUser (as live), then a Move into Unit dialog. With
+     __mock.failCreate it refuses with an alert instead. Fictional, saves nothing. -->
 <div id="list"><div ui-sref="app.resident-edit" href="#" class="add">Add Resident</div></div>
 <form id="form" onsubmit="return false">
-  <label>FIRST NAME <input type="text" name="firstName" ng-model="user.firstName"></label>
-  <label>LAST NAME <input type="text" name="lastName" ng-model="user.lastName"></label>
-  <label>EMAIL <input type="email" name="email" ng-model="user.email"></label>
-  <label>PHONE <input type="text" ng-model="user.phone"></label>
-  <label>BIRTHDAY <select name="birthdayDay" ng-model="birthday.day"></select></label>
-  <select name="birthdayFrom" ng-model="birthday.month"></select>
-  <select name="birthdayTo" ng-model="birthday.year"></select>
+  <label>FIRST NAME <input type="text" name="firstName" data-ng-model="user.firstName"></label>
+  <label>LAST NAME <input type="text" name="lastName" data-ng-model="user.lastName"></label>
+  <label>EMAIL <input type="email" name="email" data-ng-model="user.email"></label>
+  <label>PHONE <input type="text" data-ng-model="user.phone"></label>
+  <label>BIRTHDAY <select name="birthdayDay" data-ng-model="birthday.day"></select></label>
+  <select name="birthdayFrom" data-ng-model="birthday.month"></select>
+  <select name="birthdayTo" data-ng-model="birthday.year"></select>
   <div><label><input type="checkbox" id="act" checked> ACCOUNT ACTIVATION</label></div>
-  <button type="button" id="create"><span>Create New Resident</span></button>
+  <div id="create" class="btn" ng-click="postUser(user, !queryParams.notify)"><span>Create New Resident</span></div>
+  <div id="alerts"></div>
 </form>
 <div class="modal" role="dialog" id="dlg">
   <label>Unit <select id="unit"><option value="">Choose</option><option>0735</option><option>1408</option><option>0611</option></select></label>
@@ -27,18 +29,23 @@
   const add = (sel, vals) => vals.forEach(v => { const o = document.createElement('option'); o.textContent = v; sel.appendChild(o); });
   const days = []; for (let d = 1; d <= 31; d++) days.push(String(d));
   const years = []; for (let y = 2023; y >= 1923; y--) years.push(String(y));
-  add(document.querySelector('[ng-model="birthday.day"]'), days);
-  add(document.querySelector('[ng-model="birthday.month"]'), ['January','February','March','April','May','June','July','August','September','October','November','December']);
-  add(document.querySelector('[ng-model="birthday.year"]'), years);
-  document.querySelector('[ng-model="birthday.year"]').value = '1990';
-  window.__mock = { created: [], moved: [] };
+  add(document.querySelector('[data-ng-model="birthday.day"]'), days);
+  add(document.querySelector('[data-ng-model="birthday.month"]'), ['January','February','March','April','May','June','July','August','September','October','November','December']);
+  add(document.querySelector('[data-ng-model="birthday.year"]'), years);
+  document.querySelector('[data-ng-model="birthday.year"]').value = '1990';
+  window.__mock = { created: [], moved: [], presses: 0 };
   document.querySelector('.add').addEventListener('click', e => {
     e.preventDefault();
     document.getElementById('list').style.display = 'none';
     document.getElementById('form').style.display = 'block';
   });
-  const v = m => document.querySelector(`[ng-model="${m}"]`).value;
+  const v = m => document.querySelector(`[data-ng-model="${m}"]`).value;
   document.getElementById('create').addEventListener('click', () => {
+    window.__mock.presses++;
+    if (window.__mock.failCreate) {
+      document.getElementById('alerts').innerHTML = '<div role="alert">This email is already in use.</div>';
+      return;
+    }
     window.__mock.created.push({ first: v('user.firstName'), last: v('user.lastName'), email: v('user.email'),
       phone: v('user.phone'), birthday: [v('birthday.day'), v('birthday.month'), v('birthday.year')],
       activation: document.getElementById('act').checked });

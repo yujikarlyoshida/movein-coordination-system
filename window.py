@@ -45,6 +45,16 @@ BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing",
 _VALUE_LIMITS = {"confirm": 20000, "setup_save_you": 2000, "setup_save_property": 2000,
                  "setup_keep": 2000, "setup_export": 200}
 
+def _trace(action: str, outcome: str) -> None:
+    """With MOVEIN_TRACE=1, print each button press the window receives and
+    what came of it. The action name only, never its value: values can be
+    senders' names or a resident's details."""
+    if os.environ.get("MOVEIN_TRACE"):
+        import time
+
+        print(f"[{time.strftime('%H:%M:%S')}] button {action}: {outcome}", flush=True)
+
+
 # The practice systems window: where the runner fills the practice pages, in
 # view, so a test run can be watched. Separate from Outlook's window and from
 # the board; its own throwaway website data.
@@ -84,22 +94,32 @@ def _message_handler():
             try:
                 url = message.frameInfo().request().URL()
                 if url is None or (url.scheme() or "").lower() != "file":
+                    _trace("?", "refused: not the app's own page")
                     return
                 body = message.body()
                 action = str(body.get("action", "") or "")
                 limit = _VALUE_LIMITS.get(action, 200)
                 value = str(body.get("value", "") or "")
                 if len(value) > limit:
+                    _trace(action, f"refused: value too long ({len(value)} > {limit})")
                     return
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                _trace("?", f"refused: unreadable message ({type(exc).__name__})")
                 return
-            if action in BOARD_ACTIONS and _on_action is not None:
-                try:
-                    _on_action(action, value)
-                except Exception:
-                    import traceback
+            if action not in BOARD_ACTIONS:
+                _trace(action, "refused: not an action the app knows")
+                return
+            if _on_action is None:
+                _trace(action, "refused: no handler connected")
+                return
+            try:
+                _on_action(action, value)
+                _trace(action, "handled")
+            except Exception as exc:  # noqa: BLE001
+                import traceback
 
-                    traceback.print_exc()
+                _trace(action, f"FAILED: {type(exc).__name__}: {exc}")
+                traceback.print_exc()
 
     _handler = BoardMessages.alloc().init()
     return _handler

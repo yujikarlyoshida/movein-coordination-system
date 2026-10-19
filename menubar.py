@@ -384,6 +384,7 @@ class TriageDelegate(NSObject):
                 except outlook_web.SignedOut:
                     snap = replace(last, state="signed_out")
                 except outlook_web.InUse:
+                    native_window._trace("check", "paused: the Outlook tab counts as in use (on screen now or in the last few seconds)")
                     # Stopped before touching anything; the last results stay
                     # on the board. Look again shortly.
                     snap = replace(last, state="in_use")
@@ -403,6 +404,7 @@ class TriageDelegate(NSObject):
                     self._remember(results, staging.collect(messages))
                     unknown = outlook_web.unknown_lease_senders(messages)
                     stamp = datetime.now().strftime("%I:%M %p").lstrip("0")
+                    native_window._trace("check", f"finished: {len(results)} unit(s), {reader.last_opened} thread(s) opened")
                     self._notice = self._account_warning()
                     self._write_board(results, f"Watching {reader.folder}, last check {stamp}", unknown)
                     snap = menu_model.Snapshot(
@@ -574,6 +576,8 @@ class TriageDelegate(NSObject):
             if value in browser.SITES:
                 browser.open_tab(value)
                 self._wake.set()     # check sign-in states again soon
+            else:
+                native_window._trace(action, "did nothing: unknown site")
             return
         if action == "confirm":
             self._confirm(value)
@@ -740,6 +744,7 @@ class TriageDelegate(NSObject):
             self._setup_go("you")
             return
         if self._setup is None:
+            native_window._trace(action, "did nothing: Settings and the welcome page are not open")
             return
         st = self._setup
         st["notice"] = ""
@@ -888,6 +893,7 @@ class TriageDelegate(NSObject):
 
         result, plan = self._units.get(unit), self._plans.get(unit)
         if result is None or plan is None:
+            native_window._trace("prepare", "did nothing: that unit has no prepared plan (no check has finished, or it is no longer listed)")
             return
         portal = next((a.payload for a in plan.actions if a.kind == "internet_portal"), {})
         residents = [{"first": r["first_name"], "last": r["last_name"], "email": r["email"],
@@ -927,7 +933,9 @@ class TriageDelegate(NSObject):
                                     # confirmed on the sheet.
                                     "html": staging.welcome_html(people),
                                     "names": welcome_template.greeting_names([p.first_name for p in people])},
-                           send_activation_email=clean["send_activation_email"])
+                           send_activation_email=clean["send_activation_email"],
+                           # Only for guided runs, and only what was ticked for this unit.
+                           auto_final=[] if self.practice else clean["auto_final"])
         rows = {s: [autofill.STEP_LABELS[s], "waiting", ""] for s in job.steps}
 
         def show(finished=False):
@@ -939,6 +947,20 @@ class TriageDelegate(NSObject):
         def progress(step, state, detail):
             rows[step][1:] = [state, detail]
             show()
+            if not self.practice:
+                import browser
+
+                # The turn's instruction and Done / Skip go where the person is
+                # working: the browser window's toolbar (the sheet is behind it).
+                if state == "your_turn":
+                    AppHelper.callAfter(browser.show_turn, detail,
+                                        self._turn_done.set, self._turn_skip.set)
+                elif state == "auto":
+                    # The countdown before the app presses: Skip step holds it.
+                    AppHelper.callAfter(browser.show_turn, detail,
+                                        self._turn_done.set, self._turn_skip.set, "")
+                else:
+                    AppHelper.callAfter(browser.hide_turn)
 
         self._running = True
         self._turn_done.clear()
@@ -979,12 +1001,18 @@ class TriageDelegate(NSObject):
                 if all(ok for _, ok, _ in results):
                     self._done.add(unit)
                     self._notice = (f"Unit {unit} done in practice: every step finished." if self.practice
-                                    else f"Unit {unit} done: every step finished, with you pressing the final buttons.")
+                                    else f"Unit {unit} done: every step finished, with you pressing the final buttons."
+                                    if not job.auto_final
+                                    else f"Unit {unit} done: every step finished. The app's own presses are in actions.log.")
                 else:
                     failed = [autofill.STEP_LABELS[step] for step, ok, _ in results if not ok]
                     self._notice = f"Unit {unit}: {', '.join(failed)} stopped. See the sheet for why."
             finally:
                 self._running = False
+                if not self.practice:
+                    import browser
+
+                    AppHelper.callAfter(browser.hide_turn)
                 show(finished=True)
 
         threading.Thread(target=work, daemon=True).start()
@@ -1121,6 +1149,17 @@ def main() -> None:
                 probe = outlook_web._Probe(browser.view(name), os.path.join(args.probe, name))
                 outlook_web._delegates.append(probe)
                 NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, lambda _t, p=probe: p.tick())
+
+            # The board window too (development only), whichever page it shows.
+            board_probe = outlook_web._Probe(None, os.path.join(args.probe, "board"))
+            outlook_web._delegates.append(board_probe)
+
+            def board_tick(_t, p=board_probe):
+                if native_window._window is not None:
+                    p.webview = native_window._window.contentView()
+                    p.tick()
+
+            NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, board_tick)
 
     delegate.startWorker()
 

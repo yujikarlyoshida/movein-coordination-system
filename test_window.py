@@ -119,6 +119,54 @@ def test_the_swap_keeps_what_was_typed_and_the_focus():
     assert state == {"h": "Step, updated", "name": "Jordan Lee", "email": "b@example.com", "focus": "f-name"}
 
 
+class _Widget:
+    def __init__(self):
+        self.hidden, self.text, self.tip = True, "", ""
+
+    def setHidden_(self, v):
+        self.hidden = bool(v)
+
+    def setStringValue_(self, v):
+        self.text = v
+
+    def setToolTip_(self, v):
+        self.tip = v
+
+
+def test_your_turn_shows_in_the_browser_toolbar_with_done_and_skip():
+    # Found live: the welcome step waited for Send, but Done / Skip were on the
+    # sheet in the board window, behind the browser, so there was no way on.
+    try:
+        import browser
+
+        ctl = browser._controller_class()
+    except ImportError:
+        return
+    saved = (browser._window, browser._status, dict(browser._turn))
+    try:
+        browser._window = object()
+        browser._status = _Widget()
+        browser._status.hidden = False
+        browser._turn.update(label=_Widget(), done=_Widget(), skip=_Widget())
+        calls = []
+        browser.show_turn("Check the message, then press Send yourself.",
+                          lambda: calls.append("done"), lambda: calls.append("skip"))
+        assert browser._turn["label"].text == "Your turn: Check the message, then press Send yourself."
+        assert not browser._turn["done"].hidden and not browser._turn["skip"].hidden
+        assert browser._status.hidden
+        ctl.turnDone_(None)
+        assert calls == ["done"] and browser._turn["done"].hidden and not browser._status.hidden
+        browser.show_turn("Press Save yourself.", lambda: calls.append("done"), lambda: calls.append("skip"))
+        ctl.turnSkip_(None)
+        assert calls == ["done", "skip"] and browser._turn["skip"].hidden
+        ctl.turnDone_(None)              # nothing pending: does nothing
+        assert calls == ["done", "skip"]
+    finally:
+        browser._window, browser._status = saved[0], saved[1]
+        browser._turn.clear()
+        browser._turn.update(saved[2])
+
+
 if __name__ == "__main__":
     import traceback
 

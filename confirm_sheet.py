@@ -68,6 +68,14 @@ _STEP_WHY = {
 }
 
 
+_AUTO = {
+    "xfinity": "Let the app press Save resident, only if the review reads back exactly. "
+               "You get 5 seconds to stop it.",
+    "riseio": "Let the app press Create New Resident, only if the form reads back exactly. "
+              "You get 5 seconds to stop it. Confirm Move-In stays yours.",
+}
+
+
 def _esc(v) -> str:
     return html.escape(str(v or ""), quote=True)
 
@@ -111,6 +119,10 @@ def build(unit: str, residents: list[dict], missing: list, checked_at: str,
     steps = "".join(
         f'<label><input type="checkbox" data-step="{key}" checked> <span>{_esc(label)}'
         f'<br><span class="why">{_esc(_STEP_WHY[key])}</span></span></label>'
+        # Guided runs: the app may press this one final button for this unit,
+        # if you tick it. Never offered for the welcome email.
+        + ("" if practice or key not in _AUTO else
+           f'<label class="sendsmail"><input type="checkbox" data-auto="{key}"> {_esc(_AUTO[key])}</label>')
         for key, label in (("welcome", "Welcome email"), ("xfinity", "Xfinity: add resident"),
                            ("riseio", "RiseIO: add resident and move into unit"))
     )
@@ -124,7 +136,7 @@ def build(unit: str, residents: list[dict], missing: list, checked_at: str,
     else:
         action = '<button class="btn dark" data-sheet="confirm">Start guided run</button>'
         fine = ("Guided: the app fills each system in its browser and stops at every "
-                "Send, Save and Confirm for you to press.")
+                "Send, Save and Confirm for you to press, except a Save or Create you ticked above.")
 
     return (
         f'<div class="sheet" data-unit="{_esc(unit)}">'
@@ -145,11 +157,13 @@ def progress_html(rows: list[tuple[str, str, str]]) -> str:
     """[(label, state, detail)] as the sheet's live progress list. A "your_turn"
     row carries the instruction and Done / Skip this step buttons."""
     words = {"waiting": "Waiting", "running": "Working…", "done": "Done", "failed": "Stopped",
-             "your_turn": "Your turn"}
+             "your_turn": "Your turn", "auto": "Pressing soon"}
     out = []
     for label, state, detail in rows:
         turn = ""
-        if state == "your_turn":
+        if state == "auto":
+            turn = '<div class="turn"><button class="btn small dark" data-sheet="guided_skip">Stop</button></div>'
+        elif state == "your_turn":
             turn = ('<div class="turn">'
                     '<button class="btn small dark" data-sheet="guided_done">Done</button> '
                     '<button class="btn small" data-sheet="guided_skip">Skip this step</button></div>')
@@ -186,8 +200,9 @@ def validate(form: dict) -> tuple[dict | None, str]:
                 who = "the resident" if len(form.get("residents", [])) == 1 else f"the {triggers.ordinal(i)} resident"
                 return None, f"{who.capitalize()} still needs: {triggers.gap_phrase(lacking).replace('no usable ', '').replace('no ', '')}."
         residents.append(clean)
+    auto = [s for s in ("xfinity", "riseio") if s in (form.get("auto") or []) and s in steps]
     return {"unit": str(form.get("unit", "")), "residents": residents, "steps": steps,
-            "send_activation_email": bool(form.get("activate"))}, ""
+            "send_activation_email": bool(form.get("activate")), "auto_final": auto}, ""
 
 
 # The sheet's own behaviour, added to the board's script once.
@@ -263,6 +278,8 @@ SCRIPT = r"""
     });
     var form = { unit: sheet.dataset.unit, steps: steps,
                  activate: !!(document.querySelector('[data-activate]') || {}).checked,
+                 auto: [].slice.call(document.querySelectorAll('[data-auto]')).filter(function (c) { return c.checked; })
+                   .map(function (c) { return c.dataset.auto; }),
                  residents: Object.keys(residents).sort().map(function (k) { return residents[k]; }) };
     b.disabled = true; b.textContent = 'Working…';
     bridge.postMessage({ action: 'confirm', value: JSON.stringify(form) });

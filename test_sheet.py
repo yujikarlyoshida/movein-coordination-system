@@ -262,3 +262,24 @@ if __name__ == "__main__":
 
     print(f"\n{passed} passed, {failed} failed")
     raise SystemExit(1 if failed else 0)
+
+
+def test_auto_press_is_offered_only_on_guided_runs_and_never_for_the_welcome_email():
+    guided_html = confirm_sheet.build("0611", [{"first": "A", "last": "B", "email": "a@test.invalid",
+                                                "phone": "201-555-0100", "move_in": "11/01/2026"}], [], "9:00 AM", False)
+    practice_html = confirm_sheet.build("0611", [{"first": "A", "last": "B", "email": "a@test.invalid",
+                                                  "phone": "201-555-0100", "move_in": "11/01/2026"}], [], "9:00 AM", True)
+    assert 'data-auto="xfinity"' in guided_html and 'data-auto="riseio"' in guided_html
+    assert 'data-auto="welcome"' not in guided_html
+    assert "data-auto" not in practice_html
+    # Unticked by default.
+    assert 'data-auto="xfinity" checked' not in guided_html
+
+
+def test_auto_press_passes_validation_only_for_ticked_guided_steps():
+    r = {"first": "A", "last": "B", "email": "a@test.invalid", "phone": "201-555-0100", "move_in": "11/01/2026"}
+    clean, _ = confirm_sheet.validate({"unit": "0611", "residents": [r], "steps": ["xfinity"],
+                                       "auto": ["xfinity", "riseio", "welcome"]})
+    assert clean["auto_final"] == ["xfinity"]
+    clean, _ = confirm_sheet.validate({"unit": "0611", "residents": [r], "steps": ["xfinity", "riseio"]})
+    assert clean["auto_final"] == []

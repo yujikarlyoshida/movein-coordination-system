@@ -55,6 +55,9 @@ class Job:
     steps: list[str]                      # in order; any of STEP_LABELS
     welcome: dict = field(default_factory=dict)   # to, cc, subject, body
     send_activation_email: bool = False
+    # Guided runs only: the systems whose final button the app may press for
+    # this unit, ticked on the sheet ("xfinity", "riseio"). Empty: none.
+    auto_final: list[str] = field(default_factory=list)
 
 
 @dataclass

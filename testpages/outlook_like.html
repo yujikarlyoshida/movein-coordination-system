@@ -7,7 +7,9 @@
      a Subject input labelled "Subject", a contenteditable "Message body" with
      role textbox that starts with the user's automatic signature, and Send /
      Discard buttons. Fictional, sends nothing. -->
-<button aria-label="New mail" id="new">New mail</button>
+<!-- As the live page draws it: a split button labelled just "New", with a
+     dropdown arrow beside it that must not be mistaken for it. -->
+<button aria-label="New" id="new">New</button><button aria-label="Expand to see more New options" id="more"></button>
 <div id="compose">
   <div contenteditable="true" aria-label="To" id="to"></div>
   <div contenteditable="true" aria-label="Cc" id="cc"></div>

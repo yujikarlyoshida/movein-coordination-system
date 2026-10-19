@@ -138,7 +138,9 @@ def _guide(views, user, **kw):
     return guided.Guided(hooks, **kw)
 
 
-def test_xfinity_fills_step_one_and_hands_every_later_screen_to_you():
+def test_xfinity_fills_details_unit_and_dates_and_you_press_save():
+    # The unit search and the move-in date, as mapped on the live wizard, are
+    # filled by the app; only each review's Save is yours.
     if _skip():
         return
     guided.LEARN_DIR = Path(tempfile.mkdtemp())
@@ -147,17 +149,47 @@ def test_xfinity_fills_step_one_and_hands_every_later_screen_to_you():
     (result,) = _guide(views, user).run(_job(), ["xfinity"])
     assert result[1], result[2]
     saved = user.js("xfinity", "JSON.stringify(window.__mock.saved)")
+    # APT 611, never the APT 1611 that the search "611" also returns.
     assert saved == [{"first": "Resident", "last": r["last"], "email": r["email"], "phone": r["phone"],
-                      "unit": "0611", "movein": "11/01/2026"} for r in ROOMMATES]
-    # Every screen after the first was handed over, ending with Save.
+                      "unit": "APT 611", "movein": "11/01/2026"} for r in ROOMMATES]
     turns = [d for s, d in user.turns]
-    assert sum("press Save yourself" in d for d in turns) == 2
-    assert any("move-in date is filled in" in d for d in turns)
+    assert len(turns) == 2 and all("press Save resident yourself" in d for d in turns)
+    assert all(d.startswith("The review shows the email and unit.") for d in turns)
     # Unseen screens were recorded (structure only) for later build-out.
     learned = sorted(p.name for p in guided.LEARN_DIR.iterdir())
     assert "xfinity-screen-2.json" in learned
     text = (guided.LEARN_DIR / "xfinity-screen-2.json").read_text()
     assert "r-oscar@test.invalid" not in text and "201-555" not in text
+
+
+def test_when_xfinity_refuses_the_save_the_step_stops_with_its_message():
+    # Found live: "An unknown error occurred" after Save resident was taken for
+    # a new screen, and the step looped until it gave up.
+    if _skip():
+        return
+    guided.LEARN_DIR = Path(tempfile.mkdtemp())
+    views = {"xfinity": _view(PAGES / "xfinity_like.html")}
+    user = _User(views, "0611")
+    user.js("xfinity", "(() => { window.__mock.failSave = true; return '1'; })()")
+    (result,) = _guide(views, user).run(_job(residents=ROOMMATES[:1]), ["xfinity"])
+    assert not result[1]
+    assert "Xfinity did not save" in result[2] and "An unknown error occurred" in result[2]
+    assert user.js("xfinity", "JSON.stringify(window.__mock.saved)") == []
+    # One Save turn, and no looping through "new" screens afterwards.
+    assert len(user.turns) == 1
+
+
+def test_a_unit_xfinity_doesnt_have_is_handed_to_you_not_guessed():
+    if _skip():
+        return
+    guided.LEARN_DIR = Path(tempfile.mkdtemp())
+    views = {"xfinity": _view(PAGES / "xfinity_like.html")}
+    user = _User(views, "0999", act=False)
+    (result,) = _guide(views, user, turn_timeout=2).run(_job(unit="0999", residents=ROOMMATES[:1]), ["xfinity"])
+    assert not result[1] and "timed out waiting for you" in result[2]
+    (step, detail), = user.turns
+    assert "choose unit 999" in detail
+    assert user.js("xfinity", "JSON.stringify(window.__mock.saved)") == []
 
 
 def test_riseio_fills_the_form_you_create_and_confirm_the_move_in():
@@ -201,6 +233,150 @@ def test_the_app_never_presses_a_final_button_itself():
     assert all("timed out waiting for you" in d for _, _, d in results)
     assert user.js("riseio", "JSON.stringify(window.__mock.created)") == []
     assert user.js("xfinity", "JSON.stringify(window.__mock.saved)") == []
+
+
+# -- auto: the app presses Save resident / Create New Resident when ticked ------
+
+
+def _auto_setup(pages):
+    guided.LEARN_DIR = Path(tempfile.mkdtemp())
+    guided.ACTION_LOG = Path(tempfile.mkdtemp()) / "actions.log"
+    return {site: _view(PAGES / page) for site, page in pages.items()}
+
+
+def _log_lines():
+    return guided.ACTION_LOG.read_text().splitlines() if guided.ACTION_LOG.exists() else []
+
+
+class _Watcher(_User):
+    """Records the countdown; optionally presses Skip step during it."""
+
+    def __init__(self, *a, hold=False, **kw):
+        super().__init__(*a, **kw)
+        self.counts, self.hold, self._skip_once = [], hold, False
+
+    def progress(self, step, state, detail):
+        if state == "auto":
+            self.counts.append((step, detail))
+            if self.hold:
+                self._skip_once = True
+        super().progress(step, state, detail)
+
+    def skipped(self):
+        if self._skip_once:
+            self._skip_once, self.hold = False, False
+            return True
+        return False
+
+
+def _auto_guide(views, user, **kw):
+    hooks = guided.Hooks(views=views, show_tab=lambda s: None, progress=user.progress,
+                         skipped=user.skipped, user_done=user.user_done)
+    return guided.Guided(hooks, countdown=0.3, confirm_timeout=5, **kw)
+
+
+def test_auto_xfinity_presses_save_once_per_resident_after_an_exact_readback():
+    if _skip():
+        return
+    views = _auto_setup({"xfinity": "xfinity_like.html"})
+    user = _Watcher(views, "0611")
+    (result,) = _auto_guide(views, user).run(_job(auto_final=["xfinity"]), ["xfinity"])
+    assert result[1], result[2]
+    assert "the app pressed Save resident" in result[2]
+    assert [r["email"] for r in user.js("xfinity", "JSON.stringify(window.__mock.saved)")] == [r["email"] for r in ROOMMATES]
+    assert user.js("xfinity", "window.__mock.presses") == 2
+    # No turn was needed; each press was announced with a way to stop it.
+    assert user.turns == []
+    assert len(user.counts) >= 2 and all("Press Skip step to stop" in d for _, d in user.counts)
+    # The log: units and outcomes, never names, emails or phones.
+    lines = _log_lines()
+    assert [ln.split("\t")[1:] for ln in lines] == [["unit 0611", "xfinity", "pressed Save resident"],
+                                                     ["unit 0611", "xfinity", "saved"]] * 2
+    text = guided.ACTION_LOG.read_text()
+    assert "Oscar" not in text and "test.invalid" not in text and "555" not in text
+    assert oct(guided.ACTION_LOG.stat().st_mode & 0o777) == "0o600"
+
+
+def test_auto_xfinity_hands_you_a_review_that_does_not_read_back_exactly():
+    if _skip():
+        return
+    views = _auto_setup({"xfinity": "xfinity_like.html"})
+    user = _Watcher(views, "0611")
+    user.js("xfinity", "(() => { window.__mock.reviewOmits = 'phone'; return '1'; })()")
+    (result,) = _auto_guide(views, user).run(_job(residents=ROOMMATES[:1], auto_final=["xfinity"]), ["xfinity"])
+    assert result[1], result[2]
+    (step, detail), = user.turns
+    assert detail.startswith("The review did not read back exactly (phone), so this one is yours.")
+    assert "you pressed Save" in result[2]
+    assert user.counts == [] and _log_lines() == []
+
+
+def test_auto_xfinity_refused_stops_after_one_press():
+    if _skip():
+        return
+    views = _auto_setup({"xfinity": "xfinity_like.html"})
+    user = _Watcher(views, "0611")
+    user.js("xfinity", "(() => { window.__mock.failSave = true; return '1'; })()")
+    (result,) = _auto_guide(views, user).run(_job(residents=ROOMMATES[:1], auto_final=["xfinity"]), ["xfinity"])
+    assert not result[1]
+    assert "An unknown error occurred" in result[2] and "pressed once and not again" in result[2]
+    assert user.js("xfinity", "window.__mock.presses") == 1
+    assert user.js("xfinity", "JSON.stringify(window.__mock.saved)") == []
+    assert [ln.split("\t")[3] for ln in _log_lines()] == ["pressed Save resident", "refused"]
+
+
+def test_skip_during_the_countdown_holds_the_press_and_the_button_is_yours():
+    if _skip():
+        return
+    views = _auto_setup({"xfinity": "xfinity_like.html"})
+    user = _Watcher(views, "0611", hold=True)
+    (result,) = _auto_guide(views, user).run(_job(residents=ROOMMATES[:1], auto_final=["xfinity"]), ["xfinity"])
+    assert result[1], result[2]
+    # Held: the app pressed nothing; the person did, on their turn.
+    assert _log_lines() == []
+    assert len(user.turns) == 1 and "press Save resident yourself" in user.turns[0][1]
+    assert user.js("xfinity", "window.__mock.presses") == 1
+
+
+def test_auto_riseio_creates_and_leaves_confirm_move_in_to_you():
+    if _skip():
+        return
+    views = _auto_setup({"riseio": "riseio_like.html"})
+    user = _Watcher(views, "0611")
+    (result,) = _auto_guide(views, user).run(_job(auto_final=["riseio"]), ["riseio"])
+    assert result[1], result[2]
+    assert "the app pressed Create New Resident, you confirmed each move-in" in result[2]
+    created = user.js("riseio", "JSON.stringify(window.__mock.created)")
+    assert [c["email"] for c in created] == [r["email"] for r in ROOMMATES]
+    assert all(c["activation"] is False for c in created)
+    # Only Confirm Move-In was handed over, once per resident.
+    assert len(user.turns) == 2 and all("Confirm Move-In" in d for _, d in user.turns)
+    assert [ln.split("\t")[3] for ln in _log_lines()] == ["pressed Create New Resident", "created"] * 2
+
+
+def test_auto_riseio_refused_stops_with_riseios_words():
+    if _skip():
+        return
+    views = _auto_setup({"riseio": "riseio_like.html"})
+    user = _Watcher(views, "0611")
+    user.js("riseio", "(() => { window.__mock.failCreate = true; return '1'; })()")
+    (result,) = _auto_guide(views, user).run(_job(residents=ROOMMATES[:1], auto_final=["riseio"]), ["riseio"])
+    assert not result[1]
+    assert "already in use" in result[2] and "pressed once and not again" in result[2]
+    assert user.js("riseio", "window.__mock.presses") == 1
+    assert user.js("riseio", "JSON.stringify(window.__mock.created)") == []
+
+
+def test_auto_is_only_for_the_systems_ticked():
+    # Xfinity ticked, RiseIO not: RiseIO's Create stays a turn.
+    if _skip():
+        return
+    views = _auto_setup({"riseio": "riseio_like.html"})
+    user = _Watcher(views, "0611", act=False)
+    (result,) = _auto_guide(views, user, turn_timeout=1).run(
+        _job(residents=ROOMMATES[:1], auto_final=["xfinity"]), ["riseio"])
+    assert not result[1] and "timed out waiting for you" in result[2]
+    assert user.js("riseio", "window.__mock.presses") == 0 and user.counts == []
 
 
 TEMPLATE = ('<table style="width:600px"><tr><td><img src="https://images.example.invalid/logo.png"></td></tr></table>'

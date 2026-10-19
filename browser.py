@@ -52,6 +52,11 @@ _timer = None
 # The Move ins reader keeps its hands off Outlook while you are using it: it
 # clicks through threads in this same tab, which would fight your typing.
 _outlook_seen_at = 0.0
+
+# During a guided run's "your turn": the instruction and Done / Skip, in this
+# window's toolbar, where the person is working (the run's sheet is in the
+# board window, usually behind this one). Set by show_turn, cleared by hide_turn.
+_turn = {"label": None, "done": None, "skip": None, "on_done": None, "on_skip": None}
 HANDS_OFF_GRACE_SECONDS = 10.0
 
 
@@ -83,6 +88,18 @@ def _controller_class():
         def tick_(self, _timer):
             _update_status()
             _note_outlook_on_screen()
+
+        def turnDone_(self, _sender):
+            fn = _turn.get("on_done")
+            hide_turn()
+            if fn:
+                fn()
+
+        def turnSkip_(self, _sender):
+            fn = _turn.get("on_skip")
+            hide_turn()
+            if fn:
+                fn()
 
     _controller = BrowserToolbar.alloc().init()
     return _controller
@@ -190,6 +207,37 @@ def _build() -> None:
     status.setDrawsBackground_(False)
     status.setAutoresizingMask_(NSViewWidthSizable)
     bar.addSubview_(status)
+
+    # The guided run's turn: instruction, then Done and Skip, hidden until needed.
+    from AppKit import NSFont, NSViewMinXMargin
+
+    turn_label = NSTextField.alloc().initWithFrame_(NSMakeRect(x + 10, 10, W - x - 240, 20))
+    turn_label.setEditable_(False)
+    turn_label.setBordered_(False)
+    turn_label.setDrawsBackground_(False)
+    turn_label.setFont_(NSFont.boldSystemFontOfSize_(13))
+    turn_label.setAutoresizingMask_(NSViewWidthSizable)
+    turn_label.cell().setLineBreakMode_(4)   # truncate the tail
+    turn_label.setHidden_(True)
+    bar.addSubview_(turn_label)
+    done = NSButton.alloc().initWithFrame_(NSMakeRect(W - 214, 6, 96, 28))
+    done.setTitle_("Done")
+    done.setBezelStyle_(1)
+    done.setKeyEquivalent_("\r")            # the default button
+    done.setTarget_(ctl)
+    done.setAction_("turnDone:")
+    done.setAutoresizingMask_(NSViewMinXMargin)
+    done.setHidden_(True)
+    bar.addSubview_(done)
+    skip = NSButton.alloc().initWithFrame_(NSMakeRect(W - 112, 6, 102, 28))
+    skip.setTitle_("Skip step")
+    skip.setBezelStyle_(1)
+    skip.setTarget_(ctl)
+    skip.setAction_("turnSkip:")
+    skip.setAutoresizingMask_(NSViewMinXMargin)
+    skip.setHidden_(True)
+    bar.addSubview_(skip)
+    _turn.update(label=turn_label, done=done, skip=skip)
     root.addSubview_(bar)
 
     tabs = NSTabView.alloc().initWithFrame_(NSMakeRect(0, 0, W, H - BAR))
@@ -237,6 +285,32 @@ def open_tab(name: str):
     NSApp.activateIgnoringOtherApps_(True)
     _update_status()
     return v
+
+
+def show_turn(text: str, on_done, on_skip, prefix: str = "Your turn: ") -> None:
+    """Main thread. Show "Your turn: ..." with Done and Skip in the toolbar.
+    Done tells the run you have pressed the final button; Skip moves past the
+    step without it. The run also moves on by itself when it sees the button
+    pressed, which hides the bar."""
+    if _window is None:
+        _build()
+    _turn.update(on_done=on_done, on_skip=on_skip)
+    _turn["label"].setStringValue_(prefix + " ".join(str(text).split()))
+    _turn["label"].setToolTip_(str(text))
+    for key in ("label", "done", "skip"):
+        _turn[key].setHidden_(False)
+    if _status is not None:
+        _status.setHidden_(True)
+
+
+def hide_turn() -> None:
+    """Main thread. Back to the plain toolbar."""
+    _turn.update(on_done=None, on_skip=None)
+    for key in ("label", "done", "skip"):
+        if _turn.get(key) is not None:
+            _turn[key].setHidden_(True)
+    if _status is not None:
+        _status.setHidden_(False)
 
 
 def classify(name: str, url: str, ready: bool) -> str:
