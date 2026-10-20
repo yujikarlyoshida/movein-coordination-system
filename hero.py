@@ -494,6 +494,8 @@ tr[data-verdict="handled"] .unit a, tr[data-verdict="skipped_corporate"] .unit a
 .p-prepare { background-image: linear-gradient(to right, #06b6d4, #f97316); background-size: auto; animation: none;
   box-shadow: 0 10px 15px -3px rgb(0 0 0 / .3) }
 .p-missing { color: #ffffff; border: 1px dashed rgb(255 255 255 / .4) }
+.p-mark { background: rgb(255 255 255 / .06); color: rgb(255 255 255 / .75); border: 1px solid rgb(255 255 255 / .16) }
+.p-mark:hover { color: #ffffff; background: rgb(255 255 255 / .12) }
 
 /* Buttons: secondary = the design's glass nav pill; primary = its gradient. */
 .btn { background: rgb(255 255 255 / .08); color: rgb(255 255 255 / .85); border: 1px solid rgb(255 255 255 / .12); font-weight: 400 }

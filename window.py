@@ -32,7 +32,7 @@ _on_action = None
 _handler = None
 
 # The only things a board page may ask for.
-BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing",
+BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing", "mark_done", "unmark_done",
                  "prepare", "confirm", "sheet_closed", "open_site", "guided_done", "guided_skip",
                  # The welcome page and Settings (welcome.py).
                  "open_settings", "setup_go", "setup_save_you", "setup_save_property", "setup_keep",

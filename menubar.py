@@ -306,6 +306,39 @@ class TriageDelegate(NSObject):
             os.chmod(self.board_path, 0o600)
 
     @objc.python_method
+    def _with_marks(self, results):
+        import history
+        import rules
+
+        try:
+            return rules.with_marks(results, history.marked_done())
+        except Exception:  # noqa: BLE001 -- an unreadable log never hides units
+            traceback.print_exc()
+            return results
+
+    @objc.python_method
+    def _mark(self, unit, done):
+        """Mark done / Undo from the board: recorded against this unit's lease
+        email, then the board, menu and notifications follow at once."""
+        import history
+
+        result = self._units.get(unit)
+        if result is None or not result.trigger_id:
+            native_window._trace("mark_done", "did nothing: that unit is not on the latest check")
+            return
+        if done:
+            history.mark_done(result.trigger_id, unit)
+        else:
+            history.unmark_done(result.trigger_id)
+            self._done.discard(unit)
+        results = self._with_marks(list(self._units.values()))
+        _, status, unknown = self._board_args
+        self._notice = f"Unit {unit} marked done." if done else f"Unit {unit} is back on the list."
+        self._write_board(results, status, unknown)
+        self._apply(replace(self.snapshot, results=results))
+        native_window.refresh_if_open(self.board_path)
+
+    @objc.python_method
     def _remember(self, results, plans):
         """Keep each unit's result and prepared plan for the confirmation sheet."""
         self._units = {r.unit: r for r in results}
@@ -341,6 +374,7 @@ class TriageDelegate(NSObject):
                 with sample_data.fixture_config():
                     results = rules.evaluate(sample_data.MESSAGES)
                     self._remember(results, staging.collect(sample_data.MESSAGES))
+                results = self._with_marks(results)
                 self._write_board(results, status=label)
                 snap = menu_model.Snapshot(results=results, fetched_at=datetime.now(),
                                            state="watching", demo=True)
@@ -402,6 +436,8 @@ class TriageDelegate(NSObject):
                     # Records the history log and prepares plans for the
                     # confirmation sheet. Prepares, never sends.
                     self._remember(results, staging.collect(messages))
+                    # Units you marked done stay done (that lease email only).
+                    results = self._with_marks(results)
                     unknown = outlook_web.unknown_lease_senders(messages)
                     stamp = datetime.now().strftime("%I:%M %p").lstrip("0")
                     native_window._trace("check", f"finished: {len(results)} unit(s), {reader.last_opened} thread(s) opened")
@@ -556,6 +592,9 @@ class TriageDelegate(NSObject):
                 self._demo_guide_hidden = action == "guide_hide"
             self._write_board(*self._board_args)
             native_window.refresh_if_open(self.board_path)
+            return
+        if action in ("mark_done", "unmark_done"):
+            self._mark(value, action == "mark_done")
             return
         if action == "ack_missing":
             self._acked |= {k for k in value.split(",") if k}
@@ -1000,6 +1039,12 @@ class TriageDelegate(NSObject):
                 results = carry_out()
                 if all(ok for _, ok, _ in results):
                     self._done.add(unit)
+                    # A finished live run stays done after a restart too.
+                    lease = self._units.get(unit)
+                    if not self.practice and lease is not None and lease.trigger_id:
+                        import history
+
+                        history.mark_done(lease.trigger_id, unit)
                     self._notice = (f"Unit {unit} done in practice: every step finished." if self.practice
                                     else f"Unit {unit} done: every step finished, with you pressing the final buttons."
                                     if not job.auto_final

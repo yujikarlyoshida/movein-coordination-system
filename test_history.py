@@ -349,3 +349,12 @@ if __name__ == "__main__":
 
     print(f"\n{passed} passed, {failed} failed")
     raise SystemExit(1 if failed else 0)
+
+
+def test_mark_done_is_kept_by_lease_email_and_can_be_undone():
+    history.mark_done("msg-mark-1", "0317")
+    assert "msg-mark-1" in history.marked_done()
+    # Another lease email for the same unit is not marked.
+    assert "msg-mark-2" not in history.marked_done()
+    history.unmark_done("msg-mark-1")
+    assert "msg-mark-1" not in history.marked_done()

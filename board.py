@@ -383,6 +383,7 @@ tr:last-child td { border-bottom: 0 }
 .pop .actions { display: flex; justify-content: flex-end; margin-top: 16px }
 .p-prepare { background: var(--accent); color: #fff; cursor: pointer }
 .p-done { background: var(--soft); color: #0058b0 }
+.p-mark { cursor: pointer; color: var(--ink-2); border: 1px solid var(--line) }
 .guide { margin: 0 0 32px }
 .g-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 4px }
 .g-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 6px }
@@ -444,6 +445,8 @@ def _checks(result: Result) -> tuple[str, list[str]]:
     notes = list(result.problems)
     if result.verdict is Verdict.HANDLED:
         kinds = {e.kind for e in result.evidence}
+        if "marked_by_you" in kinds:
+            return "You marked this done", []
         said = []
         if kinds & {"thread_reply", "announcement"}:
             said.append("Teammate replied")
@@ -509,12 +512,21 @@ def _row(result: Result, interactive: bool = False, done: bool = False) -> str:
                if interactive and not done and result.verdict is Verdict.NEEDS_OUTREACH else "")
     missing_pill = ('<span class="pill p-missing" data-open-missing="1" '
                     'title="See what is missing">Missing info</span>') if gaps else ""
+    # Taken care of outside the app: Mark done keeps it off "need you" for good
+    # (this lease email only); Undo puts it back.
+    mark = ""
+    if interactive and not done and result.verdict in (Verdict.NEEDS_OUTREACH, Verdict.UNCLEAR):
+        mark = (f'<span class="pill p-mark app-only" data-action="mark_done" data-value="{_esc(result.unit)}" '
+                'title="You took care of this yourself">Mark done</span>')
+    elif interactive and any(e.kind == "marked_by_you" for e in result.evidence):
+        mark = (f'<span class="pill p-mark app-only" data-action="unmark_done" data-value="{_esc(result.unit)}" '
+                'title="Put it back on the list">Undo</span>')
     return (
         f'<tr data-verdict="{_esc(result.verdict.value)}">'
         f'<td class="unit">{link}</td>'
         f"<td>{_esc(_move_in(result.move_in))}</td>"
         f'<td><div class="check">{_esc(check)}</div>{note_html}</td>'
-        f'<td><div class="stack"><span class="pill {cls}">{_esc(label)}</span>{prepare}{missing_pill}</div></td>'
+        f'<td><div class="stack"><span class="pill {cls}">{_esc(label)}</span>{prepare}{missing_pill}{mark}</div></td>'
         "</tr>"
     )
 

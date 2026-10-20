@@ -46,6 +46,13 @@ CREATE TABLE IF NOT EXISTS triggers (
     status_changed_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS triggers_status_unit ON triggers (status, unit);
+-- Lease emails you marked done yourself ("Mark done" on the board). Keyed by
+-- the lease email's id: a new lease email for the same unit shows afresh.
+CREATE TABLE IF NOT EXISTS marked_done (
+    message_id TEXT PRIMARY KEY,
+    unit       TEXT NOT NULL,
+    marked_at  TEXT NOT NULL
+);
 """
 
 # An in-memory database lives only as long as its connection, so demo runs keep
@@ -147,6 +154,26 @@ def record(*, message_id: str, unit: str, status: str, trigger_received: str = "
             """,
             (message_id, unit, status, trigger_received or "", now, now),
         )
+
+
+def mark_done(message_id: str, unit: str) -> None:
+    """You took care of this lease email's unit yourself."""
+    if not message_id:
+        raise ValueError("a lease email without an id cannot be marked")
+    with _db() as conn:
+        conn.execute("INSERT OR REPLACE INTO marked_done (message_id, unit, marked_at) VALUES (?, ?, ?)",
+                     (message_id, unit, _now()))
+
+
+def unmark_done(message_id: str) -> None:
+    with _db() as conn:
+        conn.execute("DELETE FROM marked_done WHERE message_id = ?", (message_id,))
+
+
+def marked_done() -> set[str]:
+    """The lease email ids you marked done."""
+    with _db() as conn:
+        return {row[0] for row in conn.execute("SELECT message_id FROM marked_done")}
 
 
 def history(unit: str | None = None, limit: int = 100) -> list[Entry]:

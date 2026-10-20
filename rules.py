@@ -446,3 +446,20 @@ def _sorted(results: list[Result]) -> list[Result]:
         Verdict.HANDLED: 3,
     }
     return sorted(results, key=lambda r: (order[r.verdict], r.unit))
+
+
+def with_marks(results: list[Result], marked: set[str]) -> list[Result]:
+    """
+    Units you marked done yourself, shown as Handled ("You marked this done").
+
+    Keyed by the lease email's id, never the unit: a new lease email for the
+    same unit is judged afresh. Corporate skips are left as they are.
+    """
+    from dataclasses import replace
+
+    out = []
+    for r in results:
+        if r.trigger_id and r.trigger_id in marked and r.verdict in (Verdict.NEEDS_OUTREACH, Verdict.UNCLEAR):
+            r = replace(r, verdict=Verdict.HANDLED, evidence=[Evidence("marked_by_you", "", "")])
+        out.append(r)
+    return out
