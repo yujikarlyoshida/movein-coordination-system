@@ -420,21 +420,31 @@ def test_a_pass_stops_midway_when_you_start_using_outlook():
     assert reader.last_opened + len(reader._threads) >= 2
 
 
-def test_outlook_counts_as_in_use_while_shown_and_briefly_after():
+def test_outlook_counts_as_in_use_while_you_type_or_click_and_briefly_after():
     import time
 
     import browser
 
-    saved = browser._outlook_seen_at
+    saved = browser._outlook_touched_at
     try:
-        browser._outlook_seen_at = 0.0
+        browser._outlook_touched_at = 0.0
         assert not browser.outlook_in_use()
-        browser._outlook_seen_at = time.monotonic()
+        browser.note_outlook_use()
         assert browser.outlook_in_use()
-        browser._outlook_seen_at = time.monotonic() - browser.HANDS_OFF_GRACE_SECONDS - 1
+        browser._outlook_touched_at = time.monotonic() - browser.HANDS_OFF_GRACE_SECONDS - 1
         assert not browser.outlook_in_use()
     finally:
-        browser._outlook_seen_at = saved
+        browser._outlook_touched_at = saved
+
+
+def test_only_use_inside_the_outlook_page_counts():
+    # Found live: the tab merely open on screen paused every check for good.
+    import browser
+
+    assert browser.counts_as_outlook_use(True, "outlook", True)
+    assert not browser.counts_as_outlook_use(True, "outlook", False)   # the toolbar: Done, Skip step
+    assert not browser.counts_as_outlook_use(True, "xfinity", True)    # another tab
+    assert not browser.counts_as_outlook_use(False, "outlook", True)   # another window
 
 
 def test_unchanged_threads_are_not_reopened():
@@ -522,6 +532,20 @@ def test_a_company_sign_in_page_is_signed_out_not_loading_forever():
                       "https://app.sso-example.invalid/sign-in/identity-verification")
     reader = outlook_web.OutlookWebReader(view, wait=1)
     assert reader.state() == "signed_out"
+
+
+def test_outlooks_newer_address_is_not_mistaken_for_a_sign_in():
+    # Found live: Outlook moved the tab to outlook.cloud.microsoft, and an
+    # allow-list without it read real Outlook as a sign-in page.
+    if _skip_without_webkit():
+        return
+    import outlook_web
+
+    for url in ("https://outlook.cloud.microsoft/mail/", "https://mail.example.invalid/owa/"):
+        view = _load_page('<html><body><div role="treeitem">Inbox</div></body></html>', url)
+        assert outlook_web.OutlookWebReader(view, wait=1).state() == "ready", url
+    view = _load_page("<html><body>Loading</body></html>", "https://outlook.cloud.microsoft/mail/")
+    assert outlook_web.OutlookWebReader(view, wait=1).state() == "loading"
 
 
 def test_outlook_itself_is_not_mistaken_for_a_sign_in():

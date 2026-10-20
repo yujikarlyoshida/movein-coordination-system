@@ -415,17 +415,17 @@ class TriageDelegate(NSObject):
             else:
                 try:
                     records = reader.read_pass()
-                except outlook_web.SignedOut:
-                    native_window._trace("check", "stopped: Outlook looks signed out")
+                except outlook_web.SignedOut as exc:
+                    native_window._trace("check", f"stopped: {exc}")
                     snap = replace(last, state="signed_out")
                 except outlook_web.InUse:
-                    native_window._trace("check", "paused: the Outlook tab counts as in use (on screen now or in the last few seconds)")
+                    native_window._trace("check", "paused: you typed, clicked or scrolled in the Outlook tab in the last few seconds")
                     # Stopped before touching anything; the last results stay
                     # on the board. Look again shortly.
                     snap = replace(last, state="in_use")
                     delay = 5
                     results, _, unknown = self._board_args
-                    self._board_args = (results, "Paused while you use Outlook. Close its window to resume.", unknown)
+                    self._board_args = (results, "Paused while you use Outlook. Picks up a few seconds after you stop.", unknown)
                 except (outlook_web.NotReady, TimeoutError) as exc:
                     native_window._trace("check", f"waiting: Outlook not ready ({type(exc).__name__}: {exc})")
                     snap = replace(last, state="loading")

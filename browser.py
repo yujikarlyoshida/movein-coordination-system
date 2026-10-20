@@ -49,16 +49,18 @@ _status = None
 _controller = None
 _timer = None
 
-# When the window last showed the Outlook tab on screen (time.monotonic()).
-# The Move ins reader keeps its hands off Outlook while you are using it: it
-# clicks through threads in this same tab, which would fight your typing.
-_outlook_seen_at = 0.0
+# When you last typed, clicked or scrolled in the Outlook tab (time.monotonic()).
+# The Move ins reader keeps its hands off Outlook while you are using it, so
+# its clicks never fight yours. Having the tab open on screen is not using it.
+_outlook_touched_at = 0.0
+# The event monitor that sees those keystrokes and clicks. Kept, or it is freed.
+_monitor = None
 
 # During a guided run's "your turn": the instruction and Done / Skip, in this
 # window's toolbar, where the person is working (the run's sheet is in the
 # board window, usually behind this one). Set by show_turn, cleared by hide_turn.
 _turn = {"label": None, "done": None, "skip": None, "on_done": None, "on_skip": None}
-HANDS_OFF_GRACE_SECONDS = 10.0
+HANDS_OFF_GRACE_SECONDS = 15.0
 
 
 def _controller_class():
@@ -88,7 +90,6 @@ def _controller_class():
 
         def tick_(self, _timer):
             _update_status()
-            _note_outlook_on_screen()
 
         def turnDone_(self, _sender):
             fn = _turn.get("on_done")
@@ -106,24 +107,48 @@ def _controller_class():
     return _controller
 
 
-def _note_outlook_on_screen() -> None:
-    """Main thread, every second: remember if Outlook is showing to you."""
-    global _outlook_seen_at
+def counts_as_outlook_use(in_this_window: bool, tab: str, inside_outlook: bool) -> bool:
+    """A keystroke, click or scroll counts only when it lands in the Outlook
+    page itself: not the toolbar (Done, Skip step), not another tab."""
+    return in_this_window and tab == "outlook" and inside_outlook
+
+
+def note_outlook_use() -> None:
+    global _outlook_touched_at
     import time
 
-    if _window is None or _current_name() != "outlook":
-        return
-    if _window.isVisible() and not _window.isMiniaturized():
-        _outlook_seen_at = time.monotonic()
+    _outlook_touched_at = time.monotonic()
+
+
+def _watch_outlook_use(event):
+    """Main thread, for each key press, click or scroll in this app. Passes
+    every event on untouched; only notes the time when it was Outlook use."""
+    try:
+        if _window is not None and event.window() is _window:
+            page = _views.get("outlook")
+            from AppKit import NSEventTypeKeyDown
+
+            if event.type() == NSEventTypeKeyDown:    # typing: where it goes
+                target = _window.firstResponder()
+            else:                                     # a click or scroll: what is under it
+                target = _window.contentView().hitTest_(event.locationInWindow())
+            inside = (page is not None and target is not None and hasattr(target, "isDescendantOf_")
+                      and bool(target.isDescendantOf_(page)))
+            if counts_as_outlook_use(True, _current_name(), inside):
+                note_outlook_use()
+    except Exception:  # noqa: BLE001 -- never drop your keystroke over this
+        pass
+    return event
 
 
 def outlook_in_use() -> bool:
-    """True while the Outlook tab is on screen, and for a few seconds after,
-    so switching windows briefly does not hand control back mid-sentence.
-    Safe from any thread: it only reads a timestamp."""
+    """True while you are typing, clicking or scrolling in the Outlook tab, and
+    for a few seconds after, so a pause mid-sentence does not hand control
+    back. The tab merely being open is not use. Safe from any thread: it only
+    reads a timestamp."""
     import time
 
-    return _outlook_seen_at > 0 and time.monotonic() - _outlook_seen_at < HANDS_OFF_GRACE_SECONDS
+    return _outlook_touched_at > 0 and time.monotonic() - _outlook_touched_at < HANDS_OFF_GRACE_SECONDS
 
 
 def _current_name() -> str:
@@ -267,6 +292,16 @@ def _build() -> None:
     _timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
         1.0, ctl, "tick:", None, True)
 
+    # Your keystrokes, clicks and scrolls in this app's windows, to tell when
+    # you are using Outlook. Seen only to note the time; never kept or changed.
+    global _monitor
+    from AppKit import (NSEvent, NSEventMaskKeyDown, NSEventMaskLeftMouseDown,
+                        NSEventMaskRightMouseDown, NSEventMaskScrollWheel)
+
+    _monitor = NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
+        NSEventMaskKeyDown | NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskScrollWheel,
+        _watch_outlook_use)
+
 
 def view(name: str):
     """The WKWebView for one site, building the (hidden) window if needed."""
@@ -282,7 +317,6 @@ def open_tab(name: str):
     v = view(name)
     _tabs.selectTabViewItemWithIdentifier_(name)
     _window.makeKeyAndOrderFront_(None)
-    _note_outlook_on_screen()
     NSApp.activateIgnoringOtherApps_(True)
     _update_status()
     return v

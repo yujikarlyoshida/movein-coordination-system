@@ -175,13 +175,16 @@ def run_js(webview, source: str, timeout: float = 15.0):
 # Page scripts. Each returns a JSON string. Clicks are by element only.
 # ---------------------------------------------------------------------------
 
-# Any web page that is not Outlook counts as a sign-in: Microsoft's own, or
-# a company's single sign-on in between (found live: Rippling's identity
-# verification, which sat there reading as "still loading" for good).
+# Microsoft's sign-in, or any other web page that is not Outlook: a company's
+# single sign-on in between (found live: Rippling's identity verification,
+# which sat there reading as "still loading" for good). Outlook lives at
+# outlook.office.com, outlook.office365.com, outlook.live.com and, newer,
+# outlook.cloud.microsoft; a page showing Outlook's folders is Outlook anywhere.
 _STATE_JS = """(() => JSON.stringify({
-  signInPage: /login\\.microsoftonline|login\\.live/.test(location.host)
-    || (/^https?:$/.test(location.protocol) && !!location.host
-        && !/(^|\\.)outlook\\.(office|office365|live)\\.com$/.test(location.host)),
+  microsoftSignIn: /login\\.microsoftonline|login\\.live/.test(location.host),
+  elsewhere: /^https?:$/.test(location.protocol) && !!location.host
+    && !/(^|\\.)(outlook\\.(office|office365|live)\\.com|cloud\\.microsoft)$/.test(location.host),
+  host: location.host,
   folders: document.querySelectorAll('[role="treeitem"]').length,
 }))()"""
 
@@ -313,6 +316,8 @@ class OutlookWebReader:
         self.wait = wait
         self.lookback_days = lookback_days or getattr(config, "LOOKBACK_DAYS", 30)
         self.max_scrolls = max_scrolls
+        # The tab's host at the last state check, for the "signed out" message.
+        self.last_host = ""
         self._threads: dict[str, tuple[str, list[dict]]] = {}
         # Per-pass figures, for the diagnostic line.
         self.last_opened = 0
@@ -335,9 +340,12 @@ class OutlookWebReader:
     def state(self) -> str:
         """'signed_out', 'loading' or 'ready'."""
         s = self._js(_STATE_JS)
-        if s["signInPage"]:
+        self.last_host = s.get("host", "")
+        if s["microsoftSignIn"]:
             return "signed_out"
-        return "ready" if s["folders"] else "loading"
+        if s["folders"]:
+            return "ready"
+        return "signed_out" if s["elsewhere"] else "loading"
 
     def _open_and_extract(self, conv_id: str) -> list[dict] | None:
         before = self._js(_PANE_JS)
@@ -373,7 +381,8 @@ class OutlookWebReader:
         self._yield_to_you()
         state = self.state()
         if state == "signed_out":
-            raise SignedOut("signed out of Outlook; sign in again in the window")
+            raise SignedOut(f"signed out of Outlook (the tab is on {self.last_host or 'a sign-in page'}); "
+                            "sign in again in the window")
         if state != "ready":
             raise NotReady("Outlook is still loading")
 
