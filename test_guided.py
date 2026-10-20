@@ -11,6 +11,7 @@ it is their turn. All data fictional. Skipped where WebKit is missing.
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -35,6 +36,10 @@ config.PROPERTY_NAME = "The Property"
 
 import autofill  # noqa: E402
 import guided  # noqa: E402
+import settings  # noqa: E402
+
+# Never the real settings: Xfinity runs read and keep the residents page there.
+settings.use_throwaway()
 
 PAGES = Path(__file__).resolve().parent / "testpages"
 ROOMMATES = [
@@ -177,6 +182,33 @@ def test_when_xfinity_refuses_the_save_the_step_stops_with_its_message():
     assert user.js("xfinity", "JSON.stringify(window.__mock.saved)") == []
     # One Save turn, and no looping through "new" screens afterwards.
     assert len(user.turns) == 1
+
+
+def test_xfinity_finds_your_property_from_the_property_list_without_you():
+    # Found live: after a restart the tab opens on the organisation's list.
+    if _skip():
+        return
+    guided.LEARN_DIR = Path(tempfile.mkdtemp())
+    for names, opened in ((["Sample Place (Test)"], "Sample Place (Test)"),
+                          (["Other Place", "The Property (Main)"], "The Property (Main)")):
+        views = {"xfinity": _view(PAGES / "xfinity_like.html")}
+        user = _User(views, "0611")
+        user.js("xfinity", "window.__mock.goProps(%s)" % json.dumps(names))
+        (result,) = _guide(views, user).run(_job(residents=ROOMMATES[:1]), ["xfinity"])
+        assert result[1], result[2]
+        assert user.js("xfinity", "JSON.stringify(window.__mock.opened)") == [opened]
+
+
+def test_xfinity_never_guesses_between_properties():
+    if _skip():
+        return
+    guided.LEARN_DIR = Path(tempfile.mkdtemp())
+    views = {"xfinity": _view(PAGES / "xfinity_like.html")}
+    user = _User(views, "0611")
+    user.js("xfinity", "window.__mock.goProps(['Other Place', 'Another Place'])")
+    (result,) = _guide(views, user).run(_job(residents=ROOMMATES[:1]), ["xfinity"])
+    assert not result[1] and "2 properties are listed" in result[2] and "none matches" in result[2]
+    assert user.js("xfinity", "JSON.stringify(window.__mock.opened)") == []
 
 
 def test_a_unit_xfinity_doesnt_have_is_handed_to_you_not_guessed():
@@ -398,14 +430,28 @@ def test_welcome_fills_everything_and_you_press_send():
     (result,) = _guide(views, user).run(_welcome_job(), ["welcome"])
     assert result[1], result[2]
     (sent,) = user.js("outlook", "JSON.stringify(window.__mock.sent)")
-    assert "r-oscar@test.invalid" in sent["to"] and "r-papa@test.invalid" in sent["to"]
-    assert "team@example.invalid" in sent["cc"]
+    # Each address a recipient, not loose text (found live: "a@x;" stayed text).
+    assert sent["to"] == "r-oscar@test.invalid, r-papa@test.invalid"
+    # The team is in the directory: its entry shows by name only, as live.
+    assert sent["cc"] == "Sample Team"
+    assert not sent["looseTo"] and not sent["looseCc"]
     assert sent["subject"] == "The Property | Welcome Home #0611"
     # Your template, intact, above the automatic signature.
     assert sent["body"].index("Hello Resident Oscar and Resident Papa,") < sent["body"].index("Sample Signature")
     assert '<table style="width:600px">' in sent["body"]
     (step, detail), = user.turns
     assert detail.startswith("Everything checks out") and "press Send yourself" in detail
+
+
+def test_an_address_outlook_will_not_take_is_flagged_not_passed():
+    # If Outlook leaves an address as loose text, the check says so.
+    if _skip():
+        return
+    views = {"outlook": _view(PAGES / "outlook_like.html")}
+    user = _User(views, "0611")
+    (result,) = _guide(views, user).run(_welcome_job(to=["r-oscar@test.invalid;"]), ["welcome"])
+    (step, detail), = user.turns
+    assert detail.startswith("Look closely at the To recipients")
 
 
 def test_welcome_is_never_sent_by_the_app():

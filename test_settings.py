@@ -251,3 +251,13 @@ if __name__ == "__main__":
             print(f"ok    {name}")
     print(f"\n{passed} passed, {failed} failed")
     raise SystemExit(1 if failed else 0)
+
+
+def test_the_xfinity_residents_page_is_remembered_and_nothing_else():
+    assert settings.remember_xfinity_residents("/properties/P1234/residents/")
+    assert settings.xfinity_residents() == "/properties/P1234/residents"
+    # Not a residents page, or anything carrying more than an address path: refused.
+    for bad in ("/organizations/9/properties", "/properties/P1/residents/create",
+                "https://evil.example/properties/P1/residents", "/properties/P1/residents?q=x"):
+        assert not settings.remember_xfinity_residents(bad), bad
+    assert settings.xfinity_residents() == "/properties/P1234/residents"

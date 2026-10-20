@@ -186,7 +186,9 @@ return JSON.stringify({ ok: true, dated });
 _XF_KIND = r"""
 const unit = G.one('input[data-testid="unit-test"]');
 const date = G.one('[data-testid="resident-occupancy-dates-move-in-date"]');
-return JSON.stringify({ ok: true, kind: unit && G.shown(unit) ? 'unit' : date && G.shown(date) ? 'dates' : 'other' });
+const save = G.all('prism-button,button').filter(G.shown).some(b => /^save( resident)?$/i.test(G.text(b)));
+return JSON.stringify({ ok: true, kind: unit && G.shown(unit) ? 'unit' : date && G.shown(date) ? 'dates'
+                                        : save ? 'review' : 'other' });
 """
 
 # Type the unit as Xfinity names it (no leading zeros) into the search.
@@ -226,6 +228,38 @@ Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(n,
 for (const t of ['input', 'change']) n.dispatchEvent(new Event(t, { bubbles: true, composed: true }));
 n.blur();
 return JSON.stringify({ ok: true, value: n.value });
+"""
+
+# One step toward your property's residents page. In order: a property's
+# own page -> its residents page; the residents page remembered from a run;
+# the property list -> the one property card there, or the one whose name
+# matches yours. Several that match, or none: stop and say so, never guess.
+# Cards (mapped live) are focusable boxes with no link, showing the property
+# name, its address and Units / Residents counts.
+_XF_TO_RESIDENTS = r"""
+const m = location.pathname.match(/^(\/properties\/[^\/]+)(\/.*)?$/);
+if (m && !/^\/residents\/?$/.test(m[2] || '')) {
+  location.assign(location.origin + m[1] + '/residents');
+  return JSON.stringify({ ok: true, step: 'property page' });
+}
+if (D.saved && location.pathname !== D.saved) {
+  location.assign(location.origin + D.saved);
+  return JSON.stringify({ ok: true, step: 'remembered' });
+}
+const cards = G.all('div[tabindex="0"]').filter(G.shown)
+  .filter(c => { const t = G.text(c); return /units/i.test(t) && /residents/i.test(t) && G.all('prism-text', c).length; });
+if (!cards.length) return JSON.stringify({ ok: true, step: 'wait' });
+let pick = cards;
+if (cards.length > 1) {
+  const words = String(D.prop || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 && w !== 'the');
+  const name = c => G.text(G.all('prism-text', c)[0]).toLowerCase();
+  pick = words.length ? cards.filter(c => words.some(w => name(c).includes(w))) : [];
+  if (pick.length !== 1)
+    throw new Error(cards.length + ' properties are listed in Xfinity and ' + (pick.length ? pick.length + ' match' : 'none matches')
+                    + ' your property name in Settings; open yours once and the app will remember it');
+}
+pick[0].click();
+return JSON.stringify({ ok: true, step: 'property card' });
 """
 
 # Auto: does the review show every value? Names the fields that are missing,
@@ -531,13 +565,11 @@ class Guided:
             # The tab is often on the property's overview page; its residents
             # page is the same address plus /residents (the "Manage residents"
             # link). Go there if the Add resident button isn't showing.
-            self._do("xfinity",
-                     "if (!G.one('prism-button[data-testid=\"residents_hero_add_button\"]')) {"
-                     "  const m = location.pathname.match(/^\\/properties\\/[^\\/]+\\/?$/);"
-                     "  if (m) location.assign(location.pathname.replace(/\\/$/, '') + '/residents');"
-                     "}")
-            self._until("xfinity", "G.one('prism-button[data-testid=\"residents_hero_add_button\"]')",
-                        "the Xfinity residents page (open your property, then Manage residents)", timeout=60)
+            import settings
+
+            self._xfinity_to_residents()
+            here = self._js("xfinity", "return JSON.stringify({ ok: true, path: location.pathname });").get("path", "")
+            settings.remember_xfinity_residents(here)
             self._do("xfinity", "G.press(G.one('prism-button[data-testid=\"residents_hero_add_button\"]'));")
             self._until("xfinity", self._XF.format("first-name"), "the Add resident wizard")
             self._do("xfinity",
@@ -556,8 +588,11 @@ class Guided:
             # ambiguous, is recorded and handed to you, up to the review's Save.
             bare = job.unit.lstrip("0") or "0"
             for screen in range(2, 2 + MAX_XFINITY_SCREENS):
+                # Found live: right after Continue the next screen is drawn
+                # in stages (footer first, the unit search a moment later).
+                # Give it time to become a screen we know before deciding.
+                kind = self._settled_kind()
                 self.learn("xfinity", f"screen-{screen}")
-                kind = self._js("xfinity", _XF_KIND).get("kind")
                 if kind == "unit" and self._xfinity_unit(bare):
                     continue
                 if kind == "dates" and self._xfinity_dates(r.get("move_in", "")):
@@ -638,6 +673,51 @@ class Guided:
                            f"{int(self.confirm_timeout)} seconds. It was pressed once and not again; "
                            "check the residents list before trying again.")
 
+    # Add resident, drawn: found live, while the window is in the background
+    # the component exists but its inner button is not drawn yet, and a click
+    # on the empty shell does nothing. Ready only once the inner button is there.
+    _XF_ADD = "(b => !!b && G.native(b) !== b)(G.one('prism-button[data-testid=\"residents_hero_add_button\"]'))"
+
+    def _xfinity_to_residents(self) -> None:
+        """From anywhere in Xfinity to your property's residents page, without
+        you: found live, the tab opens on the organisation's property list
+        after a restart."""
+        import outlook_web
+        import settings
+
+        data = {"saved": settings.xfinity_residents(),
+                "prop": getattr(config, "PROPERTY_NAME", "") or settings.load()["property"]["name"]}
+        for _ in range(4):
+            if self._yes("xfinity", self._XF_ADD):
+                return
+            before = self._js("xfinity", "return JSON.stringify({ ok: true, at: location.href + G.print() });").get("at", "")
+            r = self._js("xfinity", _XF_TO_RESIDENTS, data)
+            if not r.get("ok"):
+                raise RuntimeError(r.get("detail", "could not reach the Xfinity residents page"))
+            if r.get("step") == "wait":
+                outlook_web.pause(1.0)
+                continue
+            # A page change, or the residents page itself, before the next step.
+            self._until("xfinity",
+                        f"{self._XF_ADD} || (location.href + G.print()) !== D.before",
+                        "Xfinity to open the next page", timeout=30, data={"before": before})
+            outlook_web.pause(1.0)
+        self._until("xfinity", self._XF_ADD,
+                    "the Xfinity residents page to finish drawing (it draws only while the Xfinity tab is on screen)",
+                    timeout=30)
+
+    def _settled_kind(self, timeout: float = 8.0) -> str:
+        """The wizard screen showing: unit, dates or review, once it is drawn;
+        "other" if it is still none of those after `timeout` seconds."""
+        import outlook_web
+
+        end = time.monotonic() + timeout
+        while True:
+            kind = self._js("xfinity", _XF_KIND).get("kind", "other")
+            if kind != "other" or time.monotonic() >= end:
+                return kind
+            outlook_web.pause(0.3)
+
     def _xfinity_continue(self) -> None:
         """Press Continue (not a final button) and wait for the next screen."""
         before = self._print("xfinity")
@@ -680,21 +760,53 @@ class Guided:
     # editable "Message body" box. The app opens it and fills it; Send is yours.
     _OW_BODY = "G.all('[contenteditable=\"true\"][aria-label=\"Message body\"]').find(G.shown)"
 
+    # Recipients, as mapped live: To and Cc are editable areas; a typed
+    # address becomes a recipient (a "_Entity" span labelled with the address)
+    # when its suggestion is picked. Typed with a trailing semicolon it stays
+    # loose text that Outlook flags as an error, and for a directory address
+    # an early Enter does nothing (the suggestions arrive a moment later) --
+    # both found live. So: type one address, click the suggestion that holds
+    # exactly that address, Enter only if none comes, and wait until it shows
+    # as a recipient.
+    _OW_WELL = ("const well = G.all('[contenteditable=\"true\"]').find(e => G.shown(e) && "
+                "e.getAttribute('aria-label') === D.label);")
+    _OW_ADD = _OW_WELL + r"""
+if (!well) throw new Error('could not find the ' + D.label + ' field');
+well.focus();
+const sel = window.getSelection(); sel.selectAllChildren(well); sel.collapseToEnd();
+document.execCommand('insertText', false, D.addr);
+"""
+    # The suggestion holding exactly this address, clicked. Never a near match.
+    _OW_PICK = r"""
+const want = D.addr.toLowerCase();
+const hits = G.all('[role="option"]').filter(G.shown).filter(o => !o.closest('[aria-label="Message list"]'))
+  .filter(o => G.text(o).toLowerCase().split(/[\s<>()"';,]+/).includes(want));
+if (hits.length !== 1) return JSON.stringify({ ok: true, picked: false, n: hits.length });
+hits[0].click();
+return JSON.stringify({ ok: true, picked: true });
+"""
+    _OW_ENTER = _OW_WELL + r"""
+if (!well) throw new Error('could not find the ' + D.label + ' field');
+well.focus();
+for (const t of ['keydown', 'keypress', 'keyup'])
+  well.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+                                            bubbles: true, cancelable: true, composed: true }));
+"""
+    # The recipients in a field, and whether loose text is left over. Found
+    # live: an outside address's entry is labelled with the address; someone
+    # in your directory's entry carries only their name, the address nowhere
+    # on the page.
+    _OW_RECIPIENTS = _OW_WELL + r"""
+if (!well) return JSON.stringify({ ok: true, found: [], count: 0, loose: false });
+const ents = [...well.querySelectorAll('[class*="_EType_RECIPIENT"], ._Entity')];
+const found = ents.map(e => (e.getAttribute('aria-label') || e.title || '').trim().toLowerCase()).filter(Boolean);
+const loose = [...well.childNodes].some(n => n.nodeType === 3 && n.textContent.replace(/[\u200b\s]/g, ''));
+return JSON.stringify({ ok: true, found, count: ents.length, loose });
+"""
+
     _OW_FILL = r"""
 const body = G.all('[contenteditable="true"][aria-label="Message body"]').find(G.shown);
 if (!body) throw new Error('no new message is open');
-const well = label => G.all('[contenteditable="true"]').find(e => G.shown(e) && e.getAttribute('aria-label') === label);
-const add = (label, list) => {
-  if (!list.length) return;
-  const w = well(label);
-  if (!w) throw new Error('could not find the ' + label + ' field');
-  w.focus();
-  // Typed the way a person would, so Outlook resolves each recipient.
-  for (const a of list) document.execCommand('insertText', false, a + ';');
-  w.blur();
-};
-add('To', D.to);
-add('Cc', D.cc ? [D.cc] : []);
 const subj = G.all('input').find(i => G.shown(i) && i.getAttribute('aria-label') === 'Subject');
 if (!subj) throw new Error('could not find the Subject field');
 G.type(subj, D.subject);
@@ -715,18 +827,48 @@ if (D.html) {
 
     _OW_CHECK = r"""
 const body = G.all('[contenteditable="true"][aria-label="Message body"]').find(G.shown);
-const well = label => G.all('[contenteditable="true"]').find(e => G.shown(e) && e.getAttribute('aria-label') === label);
-const seen = w => w ? (w.innerText + ' ' + [...w.querySelectorAll('[title],[aria-label]')]
-                 .map(e => (e.getAttribute('title') || '') + ' ' + (e.getAttribute('aria-label') || '')).join(' ')).toLowerCase() : '';
-const to = seen(well('To')), cc = seen(well('Cc'));
 const subj = G.all('input').find(i => G.shown(i) && i.getAttribute('aria-label') === 'Subject');
 const html = body ? body.innerHTML : '';
 return JSON.stringify({ ok: true,
-  toOk: D.to.every(a => to.includes(a.toLowerCase())),
-  ccOk: !D.cc || cc.includes(D.cc.toLowerCase()),
   subjectOk: !!subj && subj.value === D.subject,
   bodyOk: !D.html || (html.includes(D.names) && !html.includes('(Resident Name)') && !/fluentsystemicons/i.test(html)) });
 """
+
+    def _recipients(self, label: str, addresses: list[str]) -> bool:
+        """Add each address to To or Cc as a recipient. True when every one is
+        confirmed and no loose text is left in the field. Confirmed: its entry
+        is labelled with the address (outside addresses), or the app clicked
+        the one suggestion holding exactly that address and that added exactly
+        one recipient (your directory, whose entries show only a name)."""
+        import outlook_web
+
+        def state():
+            return self._js("outlook", self._OW_RECIPIENTS, {"label": label})
+
+        confirmed = []
+        for addr in addresses:
+            want = addr.strip().lower()
+            before = state().get("count", 0)
+            self._do("outlook", self._OW_ADD, {"label": label, "addr": addr})
+            # Its suggestion, once Outlook has looked it up; Enter if none comes.
+            picked = False
+            end = time.monotonic() + 8
+            while time.monotonic() < end:
+                if self._js("outlook", self._OW_PICK, {"addr": want}).get("picked"):
+                    picked = True
+                    break
+                outlook_web.pause(0.3)
+            else:
+                self._do("outlook", self._OW_ENTER, {"label": label})
+            end = time.monotonic() + 5
+            while True:
+                now = state()
+                ok = want in now.get("found", []) or (picked and now.get("count", 0) == before + 1)
+                if ok or time.monotonic() >= end:
+                    break
+                outlook_web.pause(0.25)
+            confirmed.append(ok)
+        return all(confirmed) and not state().get("loose")
 
     def welcome(self, job) -> str:
         """Open a new message, fill To, Cc, Subject and your template; you press Send."""
@@ -749,9 +891,14 @@ return JSON.stringify({ ok: true,
 
         import outlook_web
 
+        if not self._yes("outlook", self._OW_BODY):
+            raise RuntimeError("no new message is open")
+        to_ok = self._recipients("To", data["to"])
+        cc_ok = self._recipients("Cc", [data["cc"]] if data["cc"] else [])
         self._do("outlook", self._OW_FILL, data)
-        outlook_web.pause(0.8)   # let Outlook resolve the recipients
+        outlook_web.pause(0.5)
         check = self._js("outlook", self._OW_CHECK, data)
+        check.update(toOk=to_ok, ccOk=cc_ok)
         problems = [what for key, what in (("toOk", "the To recipients"), ("ccOk", "the Cc"),
                                            ("subjectOk", "the subject"), ("bodyOk", "the body"))
                     if not check.get(key)]

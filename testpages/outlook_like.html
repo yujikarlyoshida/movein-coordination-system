@@ -6,7 +6,13 @@
      the web's compose: To and Cc as contenteditable areas labelled "To" / "Cc",
      a Subject input labelled "Subject", a contenteditable "Message body" with
      role textbox that starts with the user's automatic signature, and Send /
-     Discard buttons. Fictional, sends nothing. -->
+     Discard buttons. As mapped live, an address typed into To or Cc becomes a
+     recipient (a span classed _Entity _EType_RECIPIENT_ENTITY, labelled with
+     the address) when its suggestion is clicked; the suggestion list arrives a
+     moment after typing, Enter does nothing for a directory address, and an
+     address typed with a semicolon stays loose text. Someone in the directory
+     (here: team@...) shows by name only, the address nowhere on the page.
+     Fictional, sends nothing. -->
 <!-- As the live page draws it: a split button labelled just "New", with a
      dropdown arrow beside it that must not be mistaken for it. -->
 <button aria-label="New" id="new">New</button><button aria-label="Expand to see more New options" id="more"></button>
@@ -20,6 +26,33 @@
 </div>
 <script>
   window.__mock = { sent: [], discarded: 0 };
+  for (const id of ['to', 'cc']) {
+    const well = document.getElementById(id);
+    const loose = () => [...well.childNodes].reverse().find(n => n.nodeType === 3 && n.textContent.trim());
+    well.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });   // does nothing, as live
+    well.addEventListener('input', () => {
+      document.querySelectorAll('.sugg-' + id).forEach(s => s.remove());
+      setTimeout(() => {
+        const last = loose();
+        if (!last || /;\s*$/.test(last.textContent)) return;     // a semicolon: no suggestion, stays text
+        const addr = last.textContent.trim();
+        const list = document.createElement('div');
+        list.className = 'sugg-' + id; list.setAttribute('role', 'listbox'); list.id = 'FloatingSuggestionsList';
+        list.innerHTML = `<div role="option">Sample Person ${addr}</div>`;
+        list.firstChild.addEventListener('click', () => {
+          const chip = document.createElement('span');
+          const shown = /^team@/.test(addr) ? 'Sample Team' : addr;
+          chip.className = '_Entity _EType_RECIPIENT_ENTITY'; chip.setAttribute('aria-label', shown);
+          chip.setAttribute('contenteditable', 'false'); chip.textContent = shown;
+          const t = loose(); if (t) well.replaceChild(chip, t);
+          list.remove();
+        });
+        document.body.appendChild(list);
+      }, 400);
+    });
+  }
+  const recipients = id => [...document.getElementById(id).querySelectorAll('._Entity')].map(e => e.getAttribute('aria-label'));
+  const loose = id => [...document.getElementById(id).childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
   const compose = document.getElementById('compose');
   document.getElementById('new').addEventListener('click', () => {
     compose.classList.add('on');
@@ -29,7 +62,8 @@
     document.getElementById('body').innerHTML = '<div id="signature"><p>-- Sample Signature</p></div>';
   });
   document.getElementById('send').addEventListener('click', () => {
-    window.__mock.sent.push({ to: document.getElementById('to').innerText.trim(), cc: document.getElementById('cc').innerText.trim(),
+    window.__mock.sent.push({ to: recipients('to').join(', '), cc: recipients('cc').join(', '),
+      looseTo: loose('to'), looseCc: loose('cc'),
       subject: document.getElementById('MSG_1_SUBJECT').value, body: document.getElementById('body').innerHTML });
     compose.classList.remove('on');
   });

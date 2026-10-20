@@ -419,7 +419,8 @@ class TriageDelegate(NSObject):
                     native_window._trace("check", f"stopped: {exc}")
                     snap = replace(last, state="signed_out")
                 except outlook_web.InUse:
-                    native_window._trace("check", "paused: you typed, clicked or scrolled in the Outlook tab in the last few seconds")
+                    native_window._trace("check", "paused: a guided run is using Outlook" if self._running
+                                         else "paused: you typed, clicked or scrolled in the Outlook tab in the last few seconds")
                     # Stopped before touching anything; the last results stay
                     # on the board. Look again shortly.
                     snap = replace(last, state="in_use")

@@ -45,6 +45,9 @@ PROFILE_VERSION = 1
 DEFAULT_FOLDER = "Move ins"
 
 _ADDRESS = re.compile(r"^[^\s@<>,;]+@[^\s@<>,;]+\.[A-Za-z]{2,}$")
+# Your property's residents page in Xfinity, remembered from a run so the
+# next one goes straight there. A page address only: no names, no values.
+_XFINITY_RESIDENTS = re.compile(r"^/properties/[A-Za-z0-9_-]{1,40}/residents$")
 _MAX = 120                 # per text field
 _MAX_TEMPLATE = 500_000    # a captured Outlook template is ~50 KB
 
@@ -85,6 +88,7 @@ def _defaults() -> dict:
         "setup_complete": _text(getattr(config, "PROPERTY_NAME", "")) not in ("", "The Property"),
         # The board's Getting started guide shows until it is hidden once.
         "guide_hidden": False,
+        "xfinity_residents": "",
     }
 
 
@@ -101,6 +105,8 @@ def _clean(raw: dict) -> dict:
         },
         "setup_complete": bool(raw.get("setup_complete")),
         "guide_hidden": bool(raw.get("guide_hidden")),
+        "xfinity_residents": (raw.get("xfinity_residents") or "")
+        if _XFINITY_RESIDENTS.match(str(raw.get("xfinity_residents") or "")) else "",
     }
 
 
@@ -178,6 +184,23 @@ def set_guide_hidden(hidden: bool) -> dict:
     data["guide_hidden"] = bool(hidden)
     save(data)
     return data
+
+
+def remember_xfinity_residents(page_path: str) -> bool:
+    """Keep your property's Xfinity residents page (its address path). False,
+    and nothing kept, for anything that is not such a page."""
+    page_path = str(page_path or "").rstrip("/")
+    if not _XFINITY_RESIDENTS.match(page_path):
+        return False
+    data = load()
+    if data["xfinity_residents"] != page_path:
+        data["xfinity_residents"] = page_path
+        save(data)
+    return True
+
+
+def xfinity_residents() -> str:
+    return load()["xfinity_residents"]
 
 
 def mark_complete() -> dict:

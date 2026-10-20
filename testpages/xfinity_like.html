@@ -16,6 +16,8 @@
   class PrismButton extends HTMLElement {
     connectedCallback() {
       if (this.shadowRoot) return;
+      // As live: some buttons are drawn a moment after they appear.
+      if (this.hasAttribute('data-late') && !this.__late) { this.__late = true; setTimeout(() => this.connectedCallback(), 900); return; }
       const r = this.attachShadow({ mode: 'open' });
       const b = document.createElement('button');
       b.textContent = this.textContent.trim();
@@ -52,13 +54,23 @@
   customElements.define('prism-select', PrismSelect);
 
   // reviewOmits: a field the review leaves out; failSave: refuse the save.
-  window.__mock = { saved: [], presses: 0 };
+  // goProps(names): start on the organisation's property list, as live after a
+  // restart -- one focusable card per property, no links.
+  window.__mock = { saved: [], presses: 0, opened: [],
+    goProps(names) {
+      at = 'props';
+      page.innerHTML = names.map((n, i) => `<div tabindex="0" class="card" data-i="${i}"><prism-text>${n}</prism-text>
+        <prism-text>100 Example St</prism-text><prism-text>Units</prism-text><prism-text>12</prism-text>
+        <prism-text>Residents</prism-text><prism-text>3</prism-text></div>`).join('');
+      page.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => { window.__mock.opened.push(names[+c.dataset.i]); show('list'); }));
+      return '1';
+    } };
   const page = document.getElementById('page');
   const state = {};
   const footer = (label) => `<prism-button data-testid="resident-create-footer-back-button">Back</prism-button>
     <prism-button data-testid="resident-create-footer-continue-button">${label}</prism-button>`;
   const screens = {
-    list: () => `<prism-button data-testid="residents_hero_add_button">Add resident</prism-button>`,
+    list: () => `<prism-button data-late data-testid="residents_hero_add_button">Add resident</prism-button>`,
     contact: () => `<prism-input-text label="First name" data-testid="resident-contact-details-first-name"></prism-input-text>
       <prism-input-text label="Last name" data-testid="resident-contact-details-last-name"></prism-input-text>
       <prism-input-text label="Email" type="email" data-testid="resident-contact-details-email"></prism-input-text>
@@ -94,7 +106,17 @@
     state.unit = b.dataset.unit;
   });
   let at = 'list';
-  const show = name => { at = name; page.innerHTML = screens[name](); };
+  // As live: the unit screen is drawn in stages, its footer first and the
+  // search a moment later.
+  const show = name => {
+    at = name;
+    if (name === 'unit') {
+      page.innerHTML = footer('Continue');
+      setTimeout(() => { if (at === 'unit') page.innerHTML = screens.unit(); }, 700);
+      return;
+    }
+    page.innerHTML = screens[name]();
+  };
   const val = id => { const e = page.querySelector(`[data-testid="${id}"]`); return e ? e.value : ''; };
   page.addEventListener('prism-click', e => {
     const id = e.target.getAttribute('data-testid');
