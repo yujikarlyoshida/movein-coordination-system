@@ -35,7 +35,8 @@ ORDER = ("outlook", "riseio", "xfinity")
 
 # What a signed-out page looks like, per site: hosts and paths of sign-in pages.
 _SIGNED_OUT = {
-    "outlook": ("login.microsoftonline", "login.live", "login.microsoft"),
+    "outlook": ("login.microsoftonline", "login.live", "login.microsoft", "rippling.com", "okta.com",
+                "/sso", "identity-verification"),
     "riseio": ("/page/login", "/login"),
     "xfinity": ("login", "signin", "sign-in", "auth", "cognito"),
 }

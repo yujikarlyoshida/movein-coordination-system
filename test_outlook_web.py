@@ -511,6 +511,29 @@ def test_the_sign_in_page_is_reported_as_signed_out():
         raise AssertionError("a sign-in page must raise SignedOut, not return an empty board")
 
 
+def test_a_company_sign_in_page_is_signed_out_not_loading_forever():
+    # Found live: the reader's window sat on a single sign-on page (another
+    # host) and reported "still loading" on every check, never asking for you.
+    if _skip_without_webkit():
+        return
+    import outlook_web
+
+    view = _load_page("<html><body>Verify it's you</body></html>",
+                      "https://app.sso-example.invalid/sign-in/identity-verification")
+    reader = outlook_web.OutlookWebReader(view, wait=1)
+    assert reader.state() == "signed_out"
+
+
+def test_outlook_itself_is_not_mistaken_for_a_sign_in():
+    if _skip_without_webkit():
+        return
+    import outlook_web
+
+    view = _load_page('<html><body><div role="treeitem">Inbox</div></body></html>',
+                      "https://outlook.office.com/mail/")
+    assert outlook_web.OutlookWebReader(view, wait=1).state() == "ready"
+
+
 def test_a_missing_folder_is_not_ready_rather_than_empty():
     # An empty result would read as "nothing needs you" -- the dangerous answer.
     if _skip_without_webkit():

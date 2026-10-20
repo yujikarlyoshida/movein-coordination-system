@@ -175,8 +175,13 @@ def run_js(webview, source: str, timeout: float = 15.0):
 # Page scripts. Each returns a JSON string. Clicks are by element only.
 # ---------------------------------------------------------------------------
 
+# Any web page that is not Outlook counts as a sign-in: Microsoft's own, or
+# a company's single sign-on in between (found live: Rippling's identity
+# verification, which sat there reading as "still loading" for good).
 _STATE_JS = """(() => JSON.stringify({
-  signInPage: /login\\.microsoftonline|login\\.live/.test(location.host),
+  signInPage: /login\\.microsoftonline|login\\.live/.test(location.host)
+    || (/^https?:$/.test(location.protocol) && !!location.host
+        && !/(^|\\.)outlook\\.(office|office365|live)\\.com$/.test(location.host)),
   folders: document.querySelectorAll('[role="treeitem"]').length,
 }))()"""
 

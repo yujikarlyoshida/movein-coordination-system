@@ -416,6 +416,7 @@ class TriageDelegate(NSObject):
                 try:
                     records = reader.read_pass()
                 except outlook_web.SignedOut:
+                    native_window._trace("check", "stopped: Outlook looks signed out")
                     snap = replace(last, state="signed_out")
                 except outlook_web.InUse:
                     native_window._trace("check", "paused: the Outlook tab counts as in use (on screen now or in the last few seconds)")
@@ -425,9 +426,11 @@ class TriageDelegate(NSObject):
                     delay = 5
                     results, _, unknown = self._board_args
                     self._board_args = (results, "Paused while you use Outlook. Close its window to resume.", unknown)
-                except (outlook_web.NotReady, TimeoutError):
+                except (outlook_web.NotReady, TimeoutError) as exc:
+                    native_window._trace("check", f"waiting: Outlook not ready ({type(exc).__name__}: {exc})")
                     snap = replace(last, state="loading")
                 except Exception as exc:  # noqa: BLE001 -- keep watching; say what broke
+                    native_window._trace("check", f"FAILED: {type(exc).__name__}: {exc}")
                     traceback.print_exc()
                     snap = replace(last, state="error", error=f"{type(exc).__name__}: {exc}")
                 else:
@@ -1190,8 +1193,9 @@ def main() -> None:
         if args.probe:
             import browser
 
-            for name in browser.ORDER:
-                probe = outlook_web._Probe(browser.view(name), os.path.join(args.probe, name))
+            # The reader's own hidden Outlook window too, as "reader".
+            for name, view in [(n, browser.view(n)) for n in browser.ORDER] + [("reader", delegate.webview)]:
+                probe = outlook_web._Probe(view, os.path.join(args.probe, name))
                 outlook_web._delegates.append(probe)
                 NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, lambda _t, p=probe: p.tick())
 
