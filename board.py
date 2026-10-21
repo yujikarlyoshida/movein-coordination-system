@@ -802,7 +802,7 @@ def render(results: list[Result], operator: str = "", status: str = "",
                   'aria-label="Prepare unit"><div id="sheet-host"></div></div></div>') if interactive else ""
 
     lede = ("Checked against every reply in the thread before anything is suggested. "
-            "Read-only: nothing is sent, saved or changed in Outlook.")
+            "Nothing is sent or saved unless you say so, unit by unit.")
     ignored = sum(n for _, n in (unknown or []))
     l1, l2, l3 = _hero_lines(len(needs), len(unclear), ignored)
     if ignored and not needs and not unclear:
