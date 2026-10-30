@@ -170,3 +170,24 @@ if __name__ == "__main__":
 
     print(f"\n{passed} passed, {failed} failed")
     raise SystemExit(1 if failed else 0)
+
+
+def test_practice_runs_at_a_pace_people_can_watch():
+    # Found in a live demo: at full speed a whole unit finished in under five
+    # seconds and looked like nothing had happened. At demo pace each field
+    # is its own beat, and the result is the same.
+    if _skip():
+        return
+    import time
+
+    beats = []
+    runner = autofill.Runner(_view(), pace=0.01)
+    real_beat = runner._beat
+    runner._beat = lambda n=1.0: (beats.append(n), real_beat(n))
+    start = time.monotonic()
+    results = runner.run(_job())
+    assert all(r.ok for r in results), [r.detail for r in results]
+    # Several beats per system: fields fill one at a time, pages stay up.
+    assert len(beats) >= 20
+    assert time.monotonic() - start >= 0.01 * sum(beats)
+    assert autofill.DEMO_PACE >= 0.5

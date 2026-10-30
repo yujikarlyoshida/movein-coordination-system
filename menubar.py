@@ -1014,7 +1014,9 @@ class TriageDelegate(NSObject):
             webview = native_window.practice_webview()
 
             def carry_out():
-                return [(r.step, r.ok, r.detail) for r in autofill.Runner(webview).run(job, progress=progress)]
+                # At a watchable pace: practice mode is for showing people.
+                runner = autofill.Runner(webview, pace=autofill.DEMO_PACE)
+                return [(r.step, r.ok, r.detail) for r in runner.run(job, progress=progress)]
         else:
             import browser
             import guided
@@ -1200,18 +1202,24 @@ def main() -> None:
                 outlook_web._delegates.append(probe)
                 NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, lambda _t, p=probe: p.tick())
 
-            # The board window too (development only), whichever page it shows.
-            board_probe = outlook_web._Probe(None, os.path.join(args.probe, "board"))
-            outlook_web._delegates.append(board_probe)
+    delegate.startWorker()
 
-            def board_tick(_t, p=board_probe):
-                if native_window._window is not None:
-                    p.webview = native_window._window.contentView()
+    if args.probe:
+        import outlook_web
+
+        # The board window, and in practice mode the practice systems window
+        # (development only), whichever page each shows.
+        for name, window_of in (("board", lambda: native_window._window),
+                                ("practice", lambda: native_window._practice_window)):
+            win_probe = outlook_web._Probe(None, os.path.join(args.probe, name))
+            outlook_web._delegates.append(win_probe)
+
+            def win_tick(_t, p=win_probe, window_of=window_of):
+                if window_of() is not None:
+                    p.webview = window_of().contentView()
                     p.tick()
 
-            NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, board_tick)
-
-    delegate.startWorker()
+            NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, win_tick)
 
     # First launch: the welcome page, in the board's window.
     if not args.demo and (args.welcome or settings.needs_setup()):

@@ -33,6 +33,10 @@ from pathlib import Path
 import config
 
 PRACTICE_DIR = Path(__file__).resolve().parent / "practice"
+
+# Seconds per beat in practice mode, so a watching audience sees each field
+# fill and each system finish (a whole unit then takes about half a minute).
+DEMO_PACE = 0.7
 PRACTICE_PAGES = {
     "welcome": PRACTICE_DIR / "outlook.html",
     "xfinity": PRACTICE_DIR / "xfinity.html",
@@ -121,10 +125,15 @@ def _script(body: str, data: dict) -> str:
 class Runner:
     """Drives the pages in one WKWebView, one step at a time."""
 
-    def __init__(self, webview, wait: float = 10.0, pages: dict | None = None):
+    def __init__(self, webview, wait: float = 10.0, pages: dict | None = None, pace: float = 0.0):
         self.webview = webview
         self.wait = wait
         self.pages = pages or PRACTICE_PAGES
+        # Seconds per beat when people are watching (practice mode, a demo):
+        # one field at a time, each page left on screen a moment. Found in a
+        # live demo: at full speed the whole unit finished in under five
+        # seconds and read as nothing having happened. 0 = full speed (tests).
+        self.pace = pace
 
     # -- page plumbing -------------------------------------------------------
 
@@ -181,6 +190,18 @@ class Runner:
             raise RuntimeError((result or {}).get("detail", "the page did not respond"))
         return result
 
+    def _beat(self, beats: float = 1.0) -> None:
+        if self.pace:
+            import outlook_web
+
+            outlook_web.pause(self.pace * beats)
+
+    def _acts(self, actions: list[str], data: dict) -> None:
+        """Each action in turn, with a beat between them when someone is watching."""
+        for action in actions:
+            self._do(action, data)
+            self._beat()
+
     def _state(self) -> dict:
         return self._js("JSON.stringify(window.__practice)") or {}
 
@@ -189,14 +210,18 @@ class Runner:
     def welcome(self, job: Job) -> str:
         w = job.welcome
         self._open(self.pages["welcome"])
-        self._do("H.set('To', D.to); H.set('Cc', D.cc); H.set('Subject', D.subject);"
-                 "H.set('Message body', D.body); H.press('Send');",
-                 {"to": "; ".join(w.get("to", [])), "cc": w.get("cc", ""),
-                  "subject": w.get("subject", ""), "body": w.get("body", "")})
+        self._beat(2)
+        data = {"to": "; ".join(w.get("to", [])), "cc": w.get("cc", ""),
+                "subject": w.get("subject", ""), "body": w.get("body", "")}
+        self._acts(["H.set('To', D.to);", "H.set('Cc', D.cc);", "H.set('Subject', D.subject);",
+                    "H.set('Message body', D.body);"], data)
+        self._beat(1.5)
+        self._do("H.press('Send');", data)
         self._until("JSON.stringify(!!(window.__practice && window.__practice.sent))", "the message to send")
         sent = self._state()["sent"]
         if sent["subject"] != w.get("subject") or sorted(sent["to"].split("; ")) != sorted(w.get("to", [])):
             raise RuntimeError("the sent message does not match what was approved")
+        self._beat(2)
         return f"sent to {len(w.get('to', []))} resident(s)"
 
     def xfinity(self, job: Job) -> str:
@@ -204,25 +229,28 @@ class Runner:
             self._open(self.pages["xfinity"])
             data = {"first": r["first"], "last": r["last"], "email": r["email"],
                     "phone": r["phone"], "unit": job.unit, "movein": r["move_in"]}
+            self._beat(2)
             # Step by step, checking the page moved on each time.
-            self._do("H.set('First name', D.first); H.set('Last name', D.last);"
-                     "H.set('Email', D.email); H.set('Phone', D.phone); H.press('Continue');"
-                     "if (H.err()) throw new Error(H.err());", data)
-            self._do("H.set('Select unit', D.unit); H.press('Continue'); if (H.err()) throw new Error(H.err());", data)
-            self._do("H.set('Move in date', D.movein); H.press('Continue'); if (H.err()) throw new Error(H.err());", data)
+            go_on = "H.press('Continue'); if (H.err()) throw new Error(H.err());"
+            self._acts(["H.set('First name', D.first);", "H.set('Last name', D.last);",
+                        "H.set('Email', D.email);", "H.set('Phone', D.phone);", go_on,
+                        "H.set('Select unit', D.unit);", go_on,
+                        "H.set('Move in date', D.movein);", go_on], data)
             # Review: read back what is about to be saved before pressing Save.
             self._do(
                 "const t = H.text('#review');"
                 "for (const v of [D.first, D.last, D.email, D.phone, D.unit, D.movein])"
                 "  if (!t.includes(v)) throw new Error('the review screen does not show ' + "
-                "    (v === D.phone ? 'the phone' : v === D.email ? 'the email' : 'every value'));"
-                "H.press('Save');", data)
+                "    (v === D.phone ? 'the phone' : v === D.email ? 'the email' : 'every value'));", data)
+            self._beat(2)
+            self._do("H.press('Save');", data)
             self._until("JSON.stringify(!!(window.__practice && window.__practice.saved))",
                         f"resident {position} to save")
             saved = self._state()["saved"]
             want = {k: data[k] for k in ("first", "last", "email", "phone", "unit", "movein")}
             if {k: saved[k] for k in want} != want:
                 raise RuntimeError(f"resident {position}: what was saved does not match what was approved")
+            self._beat(2)
         return f"added {len(job.residents)} resident(s)"
 
     def riseio(self, job: Job) -> str:
@@ -232,12 +260,17 @@ class Runner:
             data = {"first": r["first"], "last": r["last"], "email": r["email"], "phone": r.get("phone", ""),
                     "day": str(bday["day"]), "month": bday["month"], "year": str(bday["year"]),
                     "activate": bool(job.send_activation_email), "unit": job.unit, "movein": r.get("move_in", "")}
-            self._do("H.set('First name', D.first); H.set('Last name', D.last); H.set('Email', D.email);"
-                     "H.set('Phone', D.phone); H.set('Day', D.day); H.set('Month', D.month); H.set('Year', D.year);"
-                     "H.tick('Send account activation email', D.activate);"
-                     "H.press('Create New Resident'); if (H.err()) throw new Error(H.err());", data)
+            self._beat(2)
+            self._acts(["H.set('First name', D.first);", "H.set('Last name', D.last);", "H.set('Email', D.email);",
+                        "H.set('Phone', D.phone);",
+                        "H.set('Day', D.day); H.set('Month', D.month); H.set('Year', D.year);",
+                        "H.tick('Send account activation email', D.activate);"], data)
+            self._do("H.press('Create New Resident'); if (H.err()) throw new Error(H.err());", data)
             self._until("JSON.stringify(!!document.querySelector('.veil.on'))", "the Move into Unit dialog")
-            self._do("H.set('Unit', D.unit); H.set('Move-in date', D.movein); H.press('Confirm Move-In');", data)
+            self._beat()
+            self._acts(["H.set('Unit', D.unit);", "H.set('Move-in date', D.movein);"], data)
+            self._beat()
+            self._do("H.press('Confirm Move-In');", data)
             self._until("JSON.stringify(!!(window.__practice && window.__practice.moved))",
                         f"resident {position} to move in")
             state = self._state()
@@ -248,6 +281,7 @@ class Runner:
             status = self._js("JSON.stringify(document.getElementById('pstatus').textContent)")
             if status != "Future":
                 raise RuntimeError(f"resident {position}: not shown as moving in")
+            self._beat(2)
         return f"added {len(job.residents)} resident(s), moved into {job.unit}" + (
             ", activation email sent" if job.send_activation_email else ", no activation email")
 
