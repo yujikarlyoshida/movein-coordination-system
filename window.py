@@ -61,6 +61,9 @@ def _trace(action: str, outcome: str) -> None:
 _practice_window = None
 
 
+_delegate_class = None
+
+
 def _make_delegate():
     """
     Build a window delegate that clears our reference when the user closes it.
@@ -69,14 +72,20 @@ def _make_delegate():
     object, and the next "Open board" click would try to raise a window that is no
     longer on screen.
     """
-    from AppKit import NSObject
+    global _delegate_class
+    if _delegate_class is None:
+        # Defined once: an Objective-C class can only be registered once per
+        # process. Found live: defining it again on the second "Open board",
+        # after the window had been closed, failed, and the board never came back.
+        from AppKit import NSObject
 
-    class WindowDelegate(NSObject):
-        def windowWillClose_(self, notification):
-            global _window
-            _window = None
+        class WindowDelegate(NSObject):
+            def windowWillClose_(self, notification):
+                global _window
+                _window = None
 
-    return WindowDelegate.alloc().init()
+        _delegate_class = WindowDelegate
+    return _delegate_class.alloc().init()
 
 
 def _message_handler():

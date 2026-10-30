@@ -184,3 +184,17 @@ if __name__ == "__main__":
             print(f"ok    {name}")
     print(f"\n{passed} passed, {failed} failed")
     raise SystemExit(1 if failed else 0)
+
+
+def test_the_board_window_can_be_closed_and_opened_again():
+    # Found live: after the board window was closed, "Open board" failed
+    # because its window delegate class was registered a second time.
+    try:
+        import AppKit  # noqa: F401
+    except ImportError:
+        return
+    import window
+
+    first = window._make_delegate()
+    again = window._make_delegate()
+    assert type(first) is type(again)
