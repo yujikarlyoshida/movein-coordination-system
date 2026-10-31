@@ -429,6 +429,46 @@ def test_sign_in_state_is_read_from_the_page_address():
     assert c("xfinity", "https://xc3-auth.auth.us-east-1.amazoncognito.com/login", True) == "signed_out"
     assert c("riseio", "https://building.riseio.com/app/home", False) == "loading"
     assert c("riseio", "about:blank", True) == "loading"
+    # Found live: an expired session can keep its address, showing a sign-in box.
+    assert c("xfinity", "https://concierge.xc3.xfinity.com/properties", True, password=True) == "signed_out"
+
+
+def _session_check(page, after):
+    """verify_session with its page, reload and timing stood in for."""
+    import outlook_web
+    from PyObjCTools import AppHelper
+
+    reloads = []
+    pages = [page, page, dict(page, ready=True)]
+
+    class View:
+        def reload(self):
+            reloads.append(1)
+
+    saved = browser._window, browser._views.get("xfinity"), browser._page_state, AppHelper.callAfter, outlook_web.pause
+    browser._window, browser._views["xfinity"] = object(), View()
+    browser._page_state = lambda name: pages.pop(0) if len(pages) > 1 else after
+    AppHelper.callAfter, outlook_web.pause = (lambda fn, *a: fn(*a)), (lambda s: None)
+    try:
+        return browser.verify_session("xfinity"), len(reloads)
+    finally:
+        browser._window, view, browser._page_state, AppHelper.callAfter, outlook_web.pause = saved
+        browser._views["xfinity"] = view
+
+
+XF_PAGE = {"url": "https://concierge.xc3.xfinity.com/properties/P-1/residents", "ready": True,
+           "password": False, "onscreen": False, "busy": False}
+
+
+def test_a_session_that_died_behind_a_good_address_is_found_by_a_reload():
+    login = dict(XF_PAGE, url="https://xc3-auth.auth.us-east-1.amazoncognito.com/login")
+    assert _session_check(XF_PAGE, login) == ("signed_out", 1)
+    assert _session_check(XF_PAGE, XF_PAGE) == ("signed_in", 1)
+
+
+def test_a_page_in_use_is_never_reloaded():
+    assert _session_check(dict(XF_PAGE, onscreen=True), XF_PAGE) == ("signed_in", 0)
+    assert _session_check(dict(XF_PAGE, busy=True), XF_PAGE) == ("signed_in", 0)
 
 
 def test_every_site_has_a_tab_in_a_fixed_order():

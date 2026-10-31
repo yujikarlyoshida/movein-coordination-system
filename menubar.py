@@ -82,6 +82,11 @@ _STATUS_ITEM = None
 _MENU = None
 
 
+# How often the Connections panel looks at each tab, and proves a session by reloading it.
+CONNECTION_CHECK_SECONDS = 20
+SESSION_CHECK_SECONDS = 5 * 60
+
+
 def resolve_output_path() -> str:
     """
     Where board.html is written: Application Support, always.
@@ -279,6 +284,37 @@ class TriageDelegate(NSObject):
     def startWorker(self):
         target = self._demo_loop if self.demo else self._live_loop
         threading.Thread(target=target, daemon=True).start()
+        if not self.demo:
+            threading.Thread(target=self._watch_connections, daemon=True).start()
+
+    @objc.python_method
+    def _watch_connections(self):
+        """Keep the Connections panel true between mail checks: each tab looked
+        at often, and RiseIO's and Xfinity's sessions proved by a reload now and
+        then. Outlook's is left to the mail reader, which is using its tab."""
+        import time
+
+        import browser
+
+        verified = time.monotonic()
+        while True:
+            time.sleep(CONNECTION_CHECK_SECONDS)
+            verify = ()
+            if not self._running and time.monotonic() - verified >= SESSION_CHECK_SECONDS:
+                verify = ("riseio", "xfinity")
+                verified = time.monotonic()
+            try:
+                changed = self._check_connections(self.snapshot.state if self.snapshot else "", verify)
+            except Exception:  # noqa: BLE001 -- keep watching
+                traceback.print_exc()
+                continue
+            if changed:
+                native_window._trace("connections", ", ".join(f"{k} {s}" for k, _, s in self._connections))
+                self._write_board(*self._board_args)
+                if self._setup is not None and self._setup.get("step") in ("systems", "outlook"):
+                    AppHelper.callAfter(self._redraw_setup, self._setup["step"])
+                elif self._setup is None and not self._sheet_open:
+                    AppHelper.callAfter(native_window.refresh_if_open, self.board_path)
 
     @objc.python_method
     def _publish(self, snap):
@@ -345,21 +381,26 @@ class TriageDelegate(NSObject):
         self._plans = {p.unit: p for p in plans}
 
     @objc.python_method
-    def _check_connections(self, outlook_state):
-        """Each tab's sign-in state, from the page address only."""
+    def _check_connections(self, outlook_state, verify=()):
+        """Each tab's sign-in state, proving the sessions named in `verify`.
+        True when something changed. A tab still loading keeps its last answer."""
         import browser
 
+        before = {k: s for k, _, s in (self._connections or [])}
         states = []
         for key in browser.ORDER:
             if key == "outlook" and outlook_state == "signed_out":
                 state = "signed_out"
             else:
                 try:
-                    state = browser.sign_in_state(key)
+                    state = browser.verify_session(key) if key in verify else browser.sign_in_state(key)
                 except Exception:  # noqa: BLE001 -- a slow tab is "checking"
                     state = "loading"
+                if state == "loading":
+                    state = before.get(key, state)
             states.append((key, browser.SITES[key][0], state))
         self._connections = states
+        return {k: s for k, _, s in states} != before
 
     @objc.python_method
     def _demo_loop(self):

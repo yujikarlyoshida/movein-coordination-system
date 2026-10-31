@@ -348,27 +348,72 @@ def hide_turn() -> None:
         _status.setHidden_(False)
 
 
-def classify(name: str, url: str, ready: bool) -> str:
-    """'signed_in', 'signed_out' or 'loading', from the page address alone."""
+def classify(name: str, url: str, ready: bool, password: bool = False) -> str:
+    """'signed_in', 'signed_out' or 'loading', from the page address and
+    whether it is asking for a password."""
     if not url or url == "about:blank" or not ready:
         return "loading"
     low = url.lower()
-    if any(marker in low for marker in _SIGNED_OUT[name]):
+    if password or any(marker in low for marker in _SIGNED_OUT[name]):
         return "signed_out"
     return "signed_in"
 
 
-def sign_in_state(name: str) -> str:
-    """From any thread. Reads only the page's address and load state."""
+# What a tab shows, in structure only. "busy" is a form someone may be part way
+# through, which a reload would wipe.
+_PAGE_STATE_JS = r"""(() => {
+  const inputs = (root, out = []) => {
+    out.push(...root.querySelectorAll('input[type=password]'));
+    for (const e of root.querySelectorAll('*')) if (e.shadowRoot) inputs(e.shadowRoot, out);
+    return out;
+  };
+  return JSON.stringify({ url: location.href, ready: document.readyState === 'complete',
+    password: inputs(document).some(e => e.offsetWidth || e.offsetHeight || e.getClientRects().length),
+    onscreen: document.visibilityState === 'visible',
+    busy: /\/(create|edit)(\/|$)/.test(location.pathname) });
+})()"""
+
+
+def _page_state(name: str) -> dict | None:
     import outlook_web
 
+    state = outlook_web.run_js(_views[name], _PAGE_STATE_JS)
+    return state if isinstance(state, dict) else None
+
+
+def sign_in_state(name: str) -> str:
+    """From any thread. What the tab shows now; never touches the page."""
     if _window is None:
         return "not_open"
-    state = outlook_web.run_js(
-        _views[name], "JSON.stringify({ url: location.href, ready: document.readyState === 'complete' })")
-    if not isinstance(state, dict):
+    state = _page_state(name)
+    if state is None:
         return "loading"
-    return classify(name, state.get("url", ""), bool(state.get("ready")))
+    return classify(name, state.get("url", ""), bool(state.get("ready")), bool(state.get("password")))
+
+
+def verify_session(name: str) -> str:
+    """From a worker thread. Prove a session is alive by reloading its tab.
+
+    Found live: an expired session stays on the same address until the page
+    reloads, so "Signed in" could be false for as long as the tab sat there.
+    Never reloads a page on screen, or a form that may be part way through.
+    """
+    import outlook_web
+    from PyObjCTools import AppHelper
+
+    state = sign_in_state(name)
+    page = _page_state(name) if state == "signed_in" else None
+    if page is None or page.get("onscreen") or page.get("busy"):
+        return state
+    AppHelper.callAfter(_views[name].reload)
+    outlook_web.pause(2)
+    for _ in range(30):
+        page = _page_state(name)
+        if page and page.get("ready"):
+            break
+        outlook_web.pause(1)
+    outlook_web.pause(3)    # a sign-in redirect can follow the load
+    return sign_in_state(name)
 
 
 def main() -> int:
