@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Housewarm: move-in coordination. It watches a shared Outlook mailbox and reports which units still need outreach, because an audit found most move-ins were already handled by a colleague. Verification comes first. For a unit that needs outreach, a guided run (`guided.py`) fills Outlook (a draft; Send is always the person's), Xfinity Communities and RiseIO in the app's own browser (`browser.py`), stopping at each final button; pressing Save resident / Create New Resident itself is opt-in per unit, after an exact read-back and a countdown. Never send mail, never Confirm Move-In, never press by coordinates. See README.md for the full safety model.
+Housewarm: move-in coordination. It watches a shared Outlook mailbox and reports which units still need outreach, because an audit found most move-ins were already handled by a colleague. Verification comes first. For a unit that needs outreach, a guided run (`guided.py`) fills Outlook, Xfinity Communities and RiseIO in the app's own browser (`browser.py`), stopping at each final button; pressing Send / Save resident / Create New Resident itself is opt-in per unit, after an exact read-back (repeated after a countdown). The mail reader never sends; never Confirm Move-In; never press by coordinates; never log a press as done without the system confirming it. See README.md for the full safety model.
 
 ## Commands
 

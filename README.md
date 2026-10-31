@@ -7,8 +7,8 @@ move-in mailbox and answers one question, continuously:
 
 For the ones that need you, it then does the typing: it fills the welcome email
 in Outlook, adds the resident in Xfinity Communities, and creates them in RiseIO,
-stopping at every final button for you to press, or pressing Save and Create
-itself where you ticked it for that unit.
+stopping at every final button for you to press, or pressing Send, Save and
+Create itself where you ticked it for that unit.
 
 ```
 $ python app.py --demo --console
@@ -119,7 +119,7 @@ A **guided run** then works through the systems in the app's own browser:
 
 | System | The app does | The final button |
 |---|---|---|
-| Outlook | Opens a new message; fills To, Cc, Subject and the body from your own captured template, names filled in; checks each field reads back | **Send** — always yours |
+| Outlook | Opens a new message; fills To, Cc, Subject and the body from your own captured template, names filled in; checks each field reads back | **Send** — yours, or the app's if ticked |
 | Xfinity Communities | Finds your property and its residents page; fills contact details, searches the unit and picks the one exact match, types the move-in date | **Save resident** — yours, or the app's if ticked |
 | RiseIO | Fills the Add Resident form, a placeholder birthday, the activation box as you chose | **Create New Resident** — yours, or the app's if ticked; **Confirm Move-In** stays yours |
 
@@ -128,10 +128,12 @@ with Done and Skip step beside it. Anything the app cannot verify — a unit tha
 matches two search results, a screen it has not seen before — is handed to you
 with a sentence saying what to do, never guessed.
 
-**Pressing Save and Create itself is opt-in, per unit, per system,** ticked on the
-sheet. The app presses only when:
+**Pressing Send, Save and Create itself is opt-in, per unit, per system,** ticked
+on the sheet. The app presses only when:
 
-- every value reads back exactly from the page (the Xfinity review, the RiseIO form),
+- every value reads back exactly from the page (each recipient, the subject and the
+  template in Outlook; the Xfinity review; the RiseIO form), and again after the
+  countdown,
 - exactly one button by that name is showing, found by its name, never by screen position,
 - a five-second countdown passes without you pressing Skip step.
 
@@ -146,9 +148,9 @@ time, unit, system and outcome — no names, emails or phones.
 
 **It writes only where you said so.** The mail reader never sends, replies or
 moves anything: its only clicks are selecting the folder and opening threads.
-Outlook gets a draft and nothing more; Send is always a person's. Xfinity and
-RiseIO are saved only by your own press, or by the app's single press after the
-checks above for a unit you ticked. There is no `--yes` flag anywhere: a plan
+The welcome email is sent, and Xfinity and RiseIO are saved, only by your own
+press, or by the app's single press after the checks above for a unit you
+ticked. Confirm Move-In is always yours. There is no `--yes` flag anywhere: a plan
 approvable from the same command that produced it is one typo from being
 approved by accident.
 

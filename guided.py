@@ -8,8 +8,8 @@ certainty, and stops at the final control -- Send, Save, Create New Resident,
 Confirm Move-In -- with a "your turn" prompt on the sheet. It carries on once it
 sees you pressed it, or when you press Done on the sheet.
 
-Auto (opt-in per unit, Xfinity's Save resident and RiseIO's Create New Resident
-only; never Send, never Confirm Move-In). The app presses one of those only when
+Auto (opt-in per unit: Outlook's Send, Xfinity's Save resident and RiseIO's
+Create New Resident; never Confirm Move-In). The app presses one of those only when
   - every value reads back exactly from the page (the review, or the form),
   - exactly one such button is on screen, found by its name, never by position,
   - a countdown passed without you pressing Skip step or Done (either holds it,
@@ -331,6 +331,11 @@ pool[0].click();
 return JSON.stringify({ ok: true, pressed: true });
 """
 
+# How RiseIO's message reads: a plain success, or an error. Anything else is
+# not taken as success.
+_RISE_SAID_OK = re.compile(r"\b(successfully|resident (was )?(created|added)|created|saved)\b", re.I)
+_RISE_SAID_ERROR = re.compile(r"\b(error|fail|invalid|required|already|exists|not|unable|could)\b", re.I)
+
 # Anything RiseIO shows as an alert or error, by its words.
 _RISE_ALERT = ("return JSON.stringify({ ok: true, text: G.all('[role=alert],.alert-danger,.toast-error,.md-toast-content,"
                ".error-message,.help-block.error').filter(G.shown).map(G.text).filter(Boolean)[0] || '' });")
@@ -441,7 +446,10 @@ class Guided:
 
     # -- RiseIO ----------------------------------------------------------------
 
-    _RISE_DIALOG = "G.all('[role=dialog], md-dialog, .modal').some(G.shown)"
+    # The Move into Unit dialog: a dialog that says so. Found live: any visible
+    # dialog-like element counted, and RiseIO's own page has one, so a press
+    # was logged "created" in the same second, unconfirmed.
+    _RISE_DIALOG = "G.all('[role=dialog], md-dialog, .modal').filter(G.shown).some(d => /move/i.test(G.text(d)))"
 
     def riseio(self, job) -> str:
         """Fill Add Resident; you press Create New Resident, then Confirm Move-In."""
@@ -534,9 +542,12 @@ class Guided:
                 self._log(job, "riseio", "created")
                 return
             said = self._js("riseio", _RISE_ALERT).get("text")
+            if said and _RISE_SAID_OK.search(said) and not _RISE_SAID_ERROR.search(said):
+                self._log(job, "riseio", "created (RiseIO said so)")
+                return
             if said:
                 self._log(job, "riseio", "refused")
-                raise RuntimeError(f"RiseIO did not create {who}: it said \"{said}\". "
+                raise RuntimeError(f"RiseIO did not confirm {who}: it said \"{said}\". "
                                    "It was pressed once and not again. Check the details, and whether "
                                    "this resident already exists in RiseIO.")
             outlook_web.pause(0.5)
@@ -734,10 +745,16 @@ class Guided:
         except TimeoutError:
             return False
         got = self._js("xfinity", _XF_UNIT_PICK, {"unit": bare})
-        if not got.get("picked") or not got.get("selected"):
+        if not got.get("picked"):
             return False
-        self._xfinity_continue()
-        return True
+        # Found live: the chosen option does not always report itself selected,
+        # though Continue takes it. The proof is the wizard moving on to the
+        # dates; still on the unit screen (or no move at all) = yours to do.
+        try:
+            self._xfinity_continue()
+        except TimeoutError:
+            return False
+        return self._settled_kind() != "unit"
 
     def _xfinity_dates(self, move_in: str) -> bool:
         """Type the move-in date (MM/DD/YYYY) and continue; move-out stays
@@ -759,6 +776,11 @@ class Guided:
     # labelled "To" / "Cc", Subject an input labelled "Subject", the body an
     # editable "Message body" box. The app opens it and fills it; Send is yours.
     _OW_BODY = "G.all('[contenteditable=\"true\"][aria-label=\"Message body\"]').find(G.shown)"
+    _OW_IN_PROGRESS = ("(() => { const b = " + _OW_BODY + "; if (!b) return false;"
+                       " const subj = G.all('input').find(i => G.shown(i) && i.getAttribute('aria-label') === 'Subject');"
+                       " const wells = G.all('[contenteditable=\"true\"]').filter(e => G.shown(e) && /^(To|Cc|Bcc)$/.test(e.getAttribute('aria-label') || ''));"
+                       " return !!(subj && subj.value.trim()) || wells.some(w => w.innerText.replace(/[\\u200b\\s]/g, ''))"
+                       " || b.innerText.trim().length > 40; })()")
 
     # Recipients, as mapped live: To and Cc are editable areas; a typed
     # address becomes a recipient (a "_Entity" span labelled with the address)
@@ -870,8 +892,56 @@ return JSON.stringify({ ok: true,
             confirmed.append(ok)
         return all(confirmed) and not state().get("loose")
 
+    # Send: the one visible button named exactly Send (never "More send options").
+    _OW_PRESS_SEND = r"""
+const hits = G.all('button,[role=button]').filter(G.shown)
+  .filter(b => ((b.getAttribute('aria-label') || G.text(b)) || '').trim() === 'Send');
+if (hits.length !== 1) return JSON.stringify({ ok: true, pressed: false, n: hits.length });
+hits[0].click();
+return JSON.stringify({ ok: true, pressed: true });
+"""
+    # Anything Outlook says instead of sending, by its words.
+    _OW_SAID = ("return JSON.stringify({ ok: true, text: G.all('[role=alertdialog],[role=dialog],[role=alert]')"
+                ".filter(G.shown).map(G.text).filter(t => t && t.length > 3)[0] || '' });")
+
+    def _outlook_send(self, job, data: dict) -> None:
+        """Check everything once more, press Send once, and wait for Outlook to
+        take the message (the compose closes). Stops on anything else."""
+        import outlook_web
+
+        # The countdown gave time for the message to change: read it all again.
+        check = self._js("outlook", self._OW_CHECK, data)
+        to = self._js("outlook", self._OW_RECIPIENTS, {"label": "To"})
+        cc = self._js("outlook", self._OW_RECIPIENTS, {"label": "Cc"})
+        same = (check.get("subjectOk") and check.get("bodyOk")
+                and to.get("count") == len(data["to"]) and not to.get("loose")
+                and cc.get("count") == (1 if data["cc"] else 0) and not cc.get("loose"))
+        if not same:
+            raise RuntimeError("Not sent: the message changed during the countdown. It is still open in the "
+                               "Email tab for you to check and send.")
+        got = self._js("outlook", self._OW_PRESS_SEND)
+        if not got.get("pressed"):
+            raise RuntimeError(f"Not sent: {got.get('n', 0)} Send buttons were showing, not one. "
+                               "The message is still open in the Email tab.")
+        self._log(job, "outlook", "pressed Send")
+        end = time.monotonic() + self.confirm_timeout
+        while time.monotonic() < end:
+            if not self._yes("outlook", self._OW_BODY):
+                self._log(job, "outlook", "sent")
+                return
+            said = self._js("outlook", self._OW_SAID).get("text")
+            if said:
+                self._log(job, "outlook", "refused")
+                raise RuntimeError(f"Outlook did not send the welcome email: it said \"{said[:160]}\". "
+                                   "It was pressed once and not again.")
+            outlook_web.pause(0.5)
+        self._log(job, "outlook", "no answer")
+        raise RuntimeError(f"Outlook did not take the welcome email within {int(self.confirm_timeout)} seconds. "
+                           "Send was pressed once and not again; check Sent Items before trying again.")
+
     def welcome(self, job) -> str:
-        """Open a new message, fill To, Cc, Subject and your template; you press Send."""
+        """Open a new message, fill To, Cc, Subject and your template; you press
+        Send, or the app does when ticked for this unit and every check passes."""
         w = job.welcome
         data = {"to": list(w.get("to", [])), "cc": w.get("cc", "") or "", "subject": w.get("subject", ""),
                 "html": w.get("html", "") or "", "names": w.get("names", "")}
@@ -879,8 +949,10 @@ return JSON.stringify({ ok: true,
             raise RuntimeError("no resident email address to send to")
         self.h.show_tab("outlook")
 
-        # Never write into a message already in progress.
-        if self._yes("outlook", f"(() => {{ const b = {self._OW_BODY}; return b && b.innerText.trim().length > 40; }})()"):
+        # Never write into a message already in progress: one with a subject,
+        # any recipient, or more in its body than a signature. Found live: a
+        # body-only check let a run fill a half-written draft a second time.
+        if self._yes("outlook", self._OW_IN_PROGRESS):
             raise RuntimeError("a message is already open in the Email tab; send or discard it, then try again")
         if not self._yes("outlook", self._OW_BODY):
             self._do("outlook",
@@ -902,6 +974,12 @@ return JSON.stringify({ ok: true,
         problems = [what for key, what in (("toOk", "the To recipients"), ("ccOk", "the Cc"),
                                            ("subjectOk", "the subject"), ("bodyOk", "the body"))
                     if not check.get(key)]
+        if data["html"] and self._auto(job, "welcome"):
+            if not problems and self._go_ahead("welcome", "Send"):
+                self._outlook_send(job, data)
+                return "the welcome email was sent by the app after every check passed"
+            if problems:
+                self.h.progress("welcome", "running", "Not sent: something did not read back exactly.")
         if data["html"]:
             lead = ("Everything checks out: recipients, subject and your template with the names filled in. "
                     if not problems else f"Look closely at {', '.join(problems)}: the app could not confirm it. ")

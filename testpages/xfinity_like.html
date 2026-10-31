@@ -101,8 +101,7 @@
   page.addEventListener('click', e => {
     const b = e.target.closest && e.target.closest('button[role=option]');
     if (!b) return;
-    page.querySelectorAll('button[role=option]').forEach(o => o.setAttribute('aria-selected', 'false'));
-    b.setAttribute('aria-selected', 'true');
+    // As live: the chosen option does not report itself selected; Continue takes it.
     state.unit = b.dataset.unit;
   });
   let at = 'list';

@@ -454,6 +454,55 @@ def test_an_address_outlook_will_not_take_is_flagged_not_passed():
     assert detail.startswith("Look closely at the To recipients")
 
 
+def test_auto_send_sends_once_after_every_check_and_logs_it():
+    if _skip():
+        return
+    guided.ACTION_LOG = Path(tempfile.mkdtemp()) / "actions.log"
+    views = {"outlook": _view(PAGES / "outlook_like.html")}
+    user = _Watcher(views, "0611")
+    job = _welcome_job()
+    job.auto_final = ["welcome"]
+    (result,) = _auto_guide(views, user).run(job, ["welcome"])
+    assert result[1], result[2]
+    assert "sent by the app" in result[2]
+    sent = user.js("outlook", "JSON.stringify(window.__mock.sent)")
+    assert len(sent) == 1 and sent[0]["to"] == "r-oscar@test.invalid, r-papa@test.invalid"
+    assert sent[0]["subject"] == "The Property | Welcome Home #0611"
+    assert user.turns == [] and any("Pressing Send" in d for _, d in user.counts)
+    assert [ln.split("\t")[3] for ln in _log_lines()] == ["pressed Send", "sent"]
+    log = guided.ACTION_LOG.read_text()
+    assert "oscar" not in log.lower() and "test.invalid" not in log
+
+
+def test_auto_send_holds_when_an_address_will_not_resolve():
+    if _skip():
+        return
+    guided.ACTION_LOG = Path(tempfile.mkdtemp()) / "actions.log"
+    views = {"outlook": _view(PAGES / "outlook_like.html")}
+    user = _Watcher(views, "0611", act=False)
+    job = _welcome_job(to=["r-oscar@test.invalid;"])
+    job.auto_final = ["welcome"]
+    (result,) = _auto_guide(views, user, turn_timeout=1).run(job, ["welcome"])
+    assert not result[1]
+    assert user.js("outlook", "JSON.stringify(window.__mock.sent)") == []
+    assert user.counts == [] and _log_lines() == []
+    (step, detail), = user.turns
+    assert detail.startswith("Look closely at the To recipients")
+
+
+def test_a_draft_with_a_subject_is_never_written_into():
+    # Found live: a body-only check let a run fill a half-written draft again.
+    if _skip():
+        return
+    views = {"outlook": _view(PAGES / "outlook_like.html")}
+    user = _User(views, "0611")
+    user.js("outlook", "(() => { document.getElementById('new').click();"
+                       " document.getElementById('MSG_1_SUBJECT').value = 'Something else'; return '1'; })()")
+    (result,) = _guide(views, user).run(_welcome_job(), ["welcome"])
+    assert not result[1] and "already open" in result[2]
+    assert user.js("outlook", "document.getElementById('MSG_1_SUBJECT').value") == "Something else"
+
+
 def test_welcome_is_never_sent_by_the_app():
     if _skip():
         return

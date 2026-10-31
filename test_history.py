@@ -358,3 +358,22 @@ def test_mark_done_is_kept_by_lease_email_and_can_be_undone():
     assert "msg-mark-2" not in history.marked_done()
     history.unmark_done("msg-mark-1")
     assert "msg-mark-1" not in history.marked_done()
+
+
+def test_the_subject_never_says_welcome_home_twice():
+    # Found live: a property name set as "Welcome Home | Quincy" gave
+    # "Welcome Home | Quincy | Welcome Home #0220".
+    import staging
+
+    for name, want in (("Welcome Home | Quincy", "Quincy"), ("Quincy | Welcome Home", "Quincy"),
+                       ("Quincy", "Quincy"), ("", "The Property")):
+        assert staging.property_for_subject(name) == want, name
+    saved = config.PROPERTY_NAME
+    try:
+        config.PROPERTY_NAME = "Welcome Home | Quincy"
+        import types
+
+        subject = staging.compose_welcome("0220", [types.SimpleNamespace(first_name="Alpha", email="a@test.invalid")])[0]
+        assert subject == "Quincy | Welcome Home #0220"
+    finally:
+        config.PROPERTY_NAME = saved

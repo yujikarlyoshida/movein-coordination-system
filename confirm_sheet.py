@@ -69,6 +69,8 @@ _STEP_WHY = {
 
 
 _AUTO = {
+    "welcome": "Let the app send it, only if the recipients, subject and your template all read back exactly. "
+               "You get 5 seconds to stop it.",
     "xfinity": "Let the app press Save resident, only if the review reads back exactly. "
                "You get 5 seconds to stop it.",
     "riseio": "Let the app press Create New Resident, only if the form reads back exactly. "
@@ -120,7 +122,7 @@ def build(unit: str, residents: list[dict], missing: list, checked_at: str,
         f'<label><input type="checkbox" data-step="{key}" checked> <span>{_esc(label)}'
         f'<br><span class="why">{_esc(_STEP_WHY[key])}</span></span></label>'
         # Guided runs: the app may press this one final button for this unit,
-        # if you tick it. Never offered for the welcome email.
+        # if you tick it.
         + ("" if practice or key not in _AUTO else
            f'<label class="sendsmail"><input type="checkbox" data-auto="{key}"> {_esc(_AUTO[key])}</label>')
         for key, label in (("welcome", "Welcome email"), ("xfinity", "Xfinity: add resident"),
@@ -136,7 +138,7 @@ def build(unit: str, residents: list[dict], missing: list, checked_at: str,
     else:
         action = '<button class="btn dark" data-sheet="confirm">Start guided run</button>'
         fine = ("Guided: the app fills each system in its browser and stops at every "
-                "Send, Save and Confirm for you to press, except a Save or Create you ticked above.")
+                "Send, Save and Confirm for you to press, except the ones you ticked above.")
 
     return (
         f'<div class="sheet" data-unit="{_esc(unit)}">'
@@ -200,7 +202,7 @@ def validate(form: dict) -> tuple[dict | None, str]:
                 who = "the resident" if len(form.get("residents", [])) == 1 else f"the {triggers.ordinal(i)} resident"
                 return None, f"{who.capitalize()} still needs: {triggers.gap_phrase(lacking).replace('no usable ', '').replace('no ', '')}."
         residents.append(clean)
-    auto = [s for s in ("xfinity", "riseio") if s in (form.get("auto") or []) and s in steps]
+    auto = [s for s in ("welcome", "xfinity", "riseio") if s in (form.get("auto") or []) and s in steps]
     return {"unit": str(form.get("unit", "")), "residents": residents, "steps": steps,
             "send_activation_email": bool(form.get("activate")), "auto_final": auto}, ""
 

@@ -30,6 +30,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import re
+
 import config
 import history
 import rules
@@ -101,6 +103,15 @@ class StagedPlan:
 # logic -- the same reason senders and trigger phrases live there.
 WELCOME_SUBJECT = "{property} | Welcome Home #{unit}"
 
+
+def property_for_subject(name: str) -> str:
+    """The property name without a "Welcome Home" of its own. Found live: a
+    property name set as "Welcome Home | Quincy" made every subject read
+    "Welcome Home | Quincy | Welcome Home #0220"."""
+    cleaned = re.sub(r"\s*[|\-]*\s*welcome\s+home\s*[|\-]*\s*", " ", name or "", flags=re.I)
+    cleaned = " ".join(cleaned.split()).strip(" |-")
+    return cleaned or (name or "The Property")
+
 WELCOME_BODY = """Hello {greeting},
 
 Welcome home! We are delighted you will be joining us and want to help you
@@ -159,7 +170,7 @@ def compose_welcome(unit: str, residents: list) -> tuple[str, str, list[str], li
 
     # Four digits, like every other unit reference ("#0735", not "#735").
     subject = WELCOME_SUBJECT.format(
-        property=getattr(config, "PROPERTY_NAME", "The Property"),
+        property=property_for_subject(getattr(config, "PROPERTY_NAME", "The Property")),
         unit=unit,
     )
     # Your own template when you have saved one (welcome_template.py); the
