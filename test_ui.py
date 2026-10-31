@@ -526,3 +526,19 @@ if __name__ == "__main__":
 
     print(f"\n{passed} passed, {failed} failed")
     raise SystemExit(1 if failed else 0)
+
+
+def test_a_sign_in_alert_comes_once_after_two_readings():
+    out = [("riseio", "RiseIO", "signed_out")]
+    good = [("riseio", "RiseIO", "signed_in")]
+    readings, alerted = {}, set()
+    # One reading is not enough: RiseIO opens on its login page at every launch.
+    assert mm.sign_in_alerts(out, readings, alerted) == []
+    assert mm.sign_in_alerts(good, readings, alerted) == []
+    assert mm.sign_in_alerts(out, readings, alerted) == []
+    assert mm.sign_in_alerts(out, readings, alerted) == ["RiseIO"]
+    # Once per outage, and again after you have signed back in.
+    assert mm.sign_in_alerts(out, readings, alerted) == []
+    assert mm.sign_in_alerts(good, readings, alerted) == []
+    assert mm.sign_in_alerts(out, readings, alerted) == []
+    assert mm.sign_in_alerts(out, readings, alerted) == ["RiseIO"]

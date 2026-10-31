@@ -40,6 +40,26 @@ QUIT = "quitApp:"
 MAX_LISTED = 8
 
 
+def sign_in_alerts(connections: list, signed_out_for: dict, alerted: set) -> list[str]:
+    """
+    The systems to tell you about now, from [(key, label, state)]. Updates the
+    two trackers passed in. Only a second reading in a row counts: RiseIO opens
+    on its login page at every launch, even with a good session. Once per
+    outage; signing in again resets it.
+    """
+    due = []
+    for key, label, state in connections:
+        if state != "signed_out":
+            signed_out_for.pop(key, None)
+            alerted.discard(key)
+            continue
+        signed_out_for[key] = signed_out_for.get(key, 0) + 1
+        if signed_out_for[key] >= 2 and key not in alerted:
+            alerted.add(key)
+            due.append(label)
+    return due
+
+
 @dataclass
 class Snapshot:
     """One state of the app, handed from the worker thread to the UI thread."""

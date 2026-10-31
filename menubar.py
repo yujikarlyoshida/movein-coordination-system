@@ -297,6 +297,7 @@ class TriageDelegate(NSObject):
         import browser
 
         verified = time.monotonic()
+        signed_out_for, alerted = {}, set()
         while True:
             time.sleep(CONNECTION_CHECK_SECONDS)
             verify = ()
@@ -308,6 +309,13 @@ class TriageDelegate(NSObject):
             except Exception:  # noqa: BLE001 -- keep watching
                 traceback.print_exc()
                 continue
+            # Not during first-time setup, when nothing is signed in yet.
+            due = [] if self._setup is not None else menu_model.sign_in_alerts(
+                self._connections or [], signed_out_for, alerted)
+            if due:
+                native_window._trace("connections", f"sign-in needed: {', '.join(due)}")
+                notify("Housewarm", f"Sign in needed: {' and '.join(due)}",
+                       "Open Housewarm and press Open under Connections.")
             if changed:
                 native_window._trace("connections", ", ".join(f"{k} {s}" for k, _, s in self._connections))
                 self._write_board(*self._board_args)
