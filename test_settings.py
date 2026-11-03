@@ -154,7 +154,7 @@ def test_a_profile_carries_the_property_but_never_you():
     profile = settings.export_profile()
     assert profile["kind"] == "housewarm-profile" and profile["version"] == 1
     assert profile["property"]["name"] == "Example Commons"
-    assert profile["senders"] == {"addresses": ["leasing.desk@example.com"], "names": ["Leasing Lead"]}
+    assert profile["senders"] == {"addresses": ["leasing.desk@example.com"], "names": ["Leasing Lead"], "team": []}
     assert profile["welcome_template_html"] == TEMPLATE
     text = json.dumps(profile)
     assert "jordan" not in text.lower() and "you" not in profile
@@ -261,3 +261,10 @@ def test_the_xfinity_residents_page_is_remembered_and_nothing_else():
                 "https://evil.example/properties/P1/residents", "/properties/P1/residents?q=x"):
         assert not settings.remember_xfinity_residents(bad), bad
     assert settings.xfinity_residents() == "/properties/P1234/residents"
+
+
+def test_a_profile_keeps_shared_accounts_that_are_on_its_list():
+    profile = settings.export_profile(include_template=False)
+    profile["senders"] = {"addresses": [], "names": ["Front Desk"], "team": ["Front Desk", "Someone Else"]}
+    assert settings.import_profile(profile)[0]
+    assert senders.load()["team"] == ["Front Desk"]

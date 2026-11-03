@@ -76,3 +76,19 @@ def test_marks_survive_in_the_log():
     assert rules.with_marks(_results(), history.marked_done())[0].verdict is Verdict.HANDLED
     history.unmark_done("lease-a")
     assert rules.with_marks(_results(), history.marked_done())[0].verdict is Verdict.NEEDS_OUTREACH
+
+
+def test_a_lease_whose_move_in_has_passed_counts_as_handled_and_says_why():
+    from datetime import date
+
+    rows = [Result(unit="0100", verdict=Verdict.NEEDS_OUTREACH, move_in="10/01/2026"),
+            Result(unit="0200", verdict=Verdict.UNCLEAR, move_in="10/31/2026"),
+            Result(unit="0300", verdict=Verdict.NEEDS_OUTREACH, move_in="11/02/2026"),     # today: not passed
+            Result(unit="0400", verdict=Verdict.NEEDS_OUTREACH, move_in=""),               # unreadable: unchanged
+            Result(unit="0500", verdict=Verdict.SKIPPED_CORPORATE, move_in="10/01/2026")]  # corporate: unchanged
+    out = rules.with_past_move_ins(rows, date(2026, 11, 2))
+    assert [r.verdict for r in out] == [Verdict.HANDLED, Verdict.HANDLED, Verdict.NEEDS_OUTREACH,
+                                        Verdict.NEEDS_OUTREACH, Verdict.SKIPPED_CORPORATE]
+    assert out[0].evidence[0].describe() == "move-in date passed"
+    page = board.render(out, senders={"addresses": [], "names": []})
+    assert "Move-in date passed" in page

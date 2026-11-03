@@ -51,6 +51,9 @@ TRIGGER_SENDERS = [
 # sender address; see triggers.is_trigger_sender. "First Last" or "Last, First".
 # Real names belong in config_local.py, never here.
 TRIGGER_SENDER_NAMES: list[str] = []
+# Entries on the sender list that also answer leases: shared accounts. Their
+# replies count as a teammate's. Set from the private list (senders.py).
+TEAM_ACCOUNTS: list[str] = []
 
 # ...and whose body describes one of the events worth acting on. Matched
 # case-insensitively as substrings.

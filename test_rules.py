@@ -583,6 +583,53 @@ def test_leasing_replying_in_its_own_thread_does_not_count():
         assert r.verdict is Verdict.NEEDS_OUTREACH
 
 
+def _as_shared_account(fn):
+    """Run fn with one lease sender marked as a shared account."""
+    saved = config.TEAM_ACCOUNTS
+    config.TEAM_ACCOUNTS = ["leasing.specialist@example.com"]
+    try:
+        return fn()
+    finally:
+        config.TEAM_ACCOUNTS = saved
+
+
+SHARED = "leasing.specialist@example.com"
+
+
+def test_a_shared_accounts_reply_counts_as_a_teammates():
+    # Found live: an account that sends leases and also answers them had its
+    # answers ignored, so handled units stayed on Needs outreach.
+    def run():
+        (r,) = rules.evaluate([_thread_lease(), _reply("All set, thanks!", sender=SHARED)])
+        assert r.verdict is Verdict.HANDLED
+    _as_shared_account(run)
+
+
+def test_a_shared_accounts_reply_quoting_the_lease_is_not_a_new_lease():
+    # The quoted lease below a reply looks like a lease, and read as one, its
+    # own thread had no replies and the unit stayed open.
+    def run():
+        lease = _thread_lease()
+        quoted = "All set, thanks!\n\nFrom: Leasing\nSent: Thursday\n\n" + lease["body"]
+        results = rules.evaluate([lease, _reply(quoted, sender=SHARED)])
+        assert [r.verdict for r in results] == [Verdict.HANDLED]
+    _as_shared_account(run)
+
+
+def test_a_shared_account_can_still_send_a_lease_of_its_own():
+    def run():
+        (r,) = rules.evaluate([_thread_lease() | {"sender": SHARED}])
+        assert r.verdict is Verdict.NEEDS_OUTREACH
+    _as_shared_account(run)
+
+
+def test_a_shared_accounts_question_still_needs_a_look():
+    def run():
+        (r,) = rules.evaluate([_thread_lease(), _reply("Which unit is this for?", sender=SHARED)])
+        assert r.verdict is Verdict.UNCLEAR
+    _as_shared_account(run)
+
+
 def test_a_reply_in_another_thread_or_before_the_lease_does_not_count():
     (r,) = rules.evaluate([_thread_lease(), _reply("Sounds good", conv="CONV-OTHER")])
     assert r.verdict is Verdict.NEEDS_OUTREACH

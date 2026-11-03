@@ -32,7 +32,7 @@ _on_action = None
 _handler = None
 
 # The only things a board page may ask for.
-BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing", "mark_done", "unmark_done",
+BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing", "mark_done", "unmark_done", "toggle_team",
                  "prepare", "confirm", "sheet_closed", "open_site", "guided_done", "guided_skip",
                  # The welcome page and Settings (welcome.py).
                  "open_settings", "setup_go", "setup_save_you", "setup_save_property", "setup_keep",
@@ -324,6 +324,14 @@ def practice_webview():
     _practice_window.makeKeyAndOrderFront_(None)
     NSApp.activateIgnoringOtherApps_(True)
     return _practice_window.contentView()
+
+
+def board_js(source: str) -> None:
+    """Main thread. Run a small script in the open board (the progress bar),
+    without touching the rest of the page. Nothing if the window is closed."""
+    if _window is None:
+        return
+    _window.contentView().evaluateJavaScript_completionHandler_(source, None)
 
 
 def refresh_if_open(html_path: str) -> None:

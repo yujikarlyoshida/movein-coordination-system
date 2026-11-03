@@ -290,6 +290,11 @@ def import_profile(profile: dict) -> tuple[bool, str]:
     apply(data)
     senders.save({"addresses": [a.lower() for a in roster.get("addresses", []) if _ADDRESS.match(str(a).strip())],
                   "names": roster.get("names", [])})
+    # Shared accounts come along, but only ones on the imported list.
+    kept = senders.load()
+    listed = {v.lower() for v in kept["addresses"] + kept["names"]}
+    kept["team"] = [t for t in roster.get("team", []) or [] if str(t).strip().lower() in listed]
+    senders.save(kept)
     senders.apply()
     if template:
         welcome_template.save(template)

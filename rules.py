@@ -241,6 +241,15 @@ _QUOTE_START = re.compile(
 )
 
 
+_REPLY_PREFIX = re.compile(r"^\s*((re|fw|fwd)\s*:\s*)+", re.I)
+
+
+def subject_topic(subject: str) -> str:
+    """A subject without its RE: / FW: prefixes, for matching a reply to the
+    email it answers."""
+    return " ".join(_REPLY_PREFIX.sub("", subject or "").lower().split())
+
+
 def thread_id(message: dict) -> str:
     """The conversation a message belongs to: Outlook on the web's conv_id, or
     Graph's conversationId. Blank when the source does not say."""
@@ -280,7 +289,8 @@ def judge_thread(
     missed because it matched none of the phrases is_announcement knows.
 
     Counted: replies in the same conversation as the trigger, dated at or after
-    it (less the clock-skew allowance), from anyone who is not a lease sender.
+    it (less the clock-skew allowance), from anyone who is not a lease sender,
+    or from a shared account (config.TEAM_ACCOUNTS) that also answers them.
     Leasing's own follow-ups ("adding a roommate", "thanks!") are requests, not
     completions, so they never count.
 
@@ -306,7 +316,11 @@ def judge_thread(
         if m.get("id") == trigger_id or thread_id(m) != conversation:
             continue
         if triggers.is_trigger_sender(m.get("sender", ""), m.get("sender_name", "")):
-            continue
+            # A shared account's reply is a teammate's, unless it is itself a
+            # new lease (found live: its answers were being ignored).
+            if (not triggers.is_team_account(m.get("sender", ""), m.get("sender_name", ""))
+                    or triggers.build_trigger(m) is not None):
+                continue
         when = parse_received(m.get("received"))
         if when is None or when < cutoff:
             continue
@@ -446,6 +460,66 @@ def _sorted(results: list[Result]) -> list[Result]:
         Verdict.HANDLED: 3,
     }
     return sorted(results, key=lambda r: (order[r.verdict], r.unit))
+
+
+def thread_summary(messages: list[dict], result: Result) -> str:
+    """For the trace: what the app can see around one unit, by kind of sender
+    and never by name, so "why is this still open?" can be answered."""
+    import triggers
+
+    def kind(m):
+        address, name = m.get("sender", ""), m.get("sender_name", "")
+        if triggers.is_team_account(address, name):
+            return "shared"
+        return "lease" if triggers.is_trigger_sender(address, name) else "other"
+
+    trigger = next((m for m in messages if m.get("id") == result.trigger_id), {})
+    conversation = thread_id(trigger)
+    in_thread = [m for m in messages if conversation and thread_id(m) == conversation]
+    about = [m for m in messages if result.unit.lstrip("0") in (m.get("subject", "") or "")
+             and thread_id(m) != conversation]
+    cutoff = parse_received(result.trigger_received)
+    after = sum(1 for m in in_thread if cutoff and (parse_received(m.get("received")) or cutoff) > cutoff)
+    topic = subject_topic(trigger.get("subject", "")) if trigger else ""
+
+    def describe(m):
+        when = parse_received(m.get("received"))
+        return (kind(m) + ("/same-subject" if topic and subject_topic(m.get("subject", "")) == topic else "")
+                + ("/after" if cutoff and when and when >= cutoff else "/before"))
+
+    return (f"lease from {kind(trigger) if trigger else '?'}, thread id {'yes' if conversation else 'NONE'}, "
+            f"in thread {[kind(m) for m in in_thread]}, {after} after the lease, "
+            f"other threads naming the unit {[describe(m) for m in about]}")
+
+
+def move_in_date(text: str):
+    """A Result's move-in date as a date, or None when it cannot be read."""
+    from datetime import datetime
+
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime((text or "").strip(), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def with_past_move_ins(results: list[Result], today) -> list[Result]:
+    """
+    Leases whose move-in date has already passed, shown as Handled ("Move-in
+    date passed"): by then the work is done or no longer the point. Your
+    choice, labelled as such so it is never mistaken for a teammate's reply.
+    Corporate skips stay as they are; an unreadable date changes nothing.
+    """
+    from dataclasses import replace
+
+    out = []
+    for r in results:
+        when = move_in_date(r.move_in)
+        if when and when < today and r.verdict in (Verdict.NEEDS_OUTREACH, Verdict.UNCLEAR):
+            r = replace(r, verdict=Verdict.HANDLED, evidence=[Evidence("move_in_passed", "", "")])
+        out.append(r)
+    return out
 
 
 def with_marks(results: list[Result], marked: set[str]) -> list[Result]:

@@ -316,6 +316,12 @@ class OutlookWebReader:
         self.wait = wait
         self.lookback_days = lookback_days or getattr(config, "LOOKBACK_DAYS", 30)
         self.max_scrolls = max_scrolls
+        # progress(stage, done, about): told as a pass moves through the folder,
+        # for the board's progress bar. "about" is the last pass's thread count.
+        self.progress = None
+        self.threads_seen = 0
+        # The folder's size from the last pass that read all of it; 0 until one has.
+        self.folder_size = 0
         # The tab's host at the last state check, for the "signed out" message.
         self.last_host = ""
         self._threads: dict[str, tuple[str, list[dict]]] = {}
@@ -375,6 +381,13 @@ class OutlookWebReader:
         if self.hands_off():
             raise InUse("paused while you use Outlook")
 
+    def _report(self, stage: str, done: int, about: int) -> None:
+        if self.progress:
+            try:
+                self.progress(stage, done, about)
+            except Exception:  # noqa: BLE001 -- a progress bar never stops a pass
+                pass
+
     def read_pass(self) -> list[dict]:
         """One pass. Returns raw extractor records for every thread in the window.
         Raises InUse, having stopped cleanly, if you start using Outlook."""
@@ -386,6 +399,7 @@ class OutlookWebReader:
         if state != "ready":
             raise NotReady("Outlook is still loading")
 
+        self._report("folder", 0, 0)
         folder = json.dumps(self.folder)
         picked = self._js(_SELECT_FOLDER_JS % (_FOLDER_MATCH % folder))
         if not picked["found"]:
@@ -409,6 +423,7 @@ class OutlookWebReader:
                 if conv in seen:
                     continue
                 seen.add(conv)
+                self._report("threads", len(seen), max(self.folder_size, len(seen)) if self.folder_size else 0)
                 cached = self._threads.get(conv)
                 if cached and cached[0] == row["labelHash"]:
                     records = cached[1]
@@ -454,6 +469,8 @@ class OutlookWebReader:
         if self.stopped_by in ("lookback window", "end of list") and not self.skipped:
             self._threads = {c: v for c, v in self._threads.items() if c in seen}
         self.threads_seen = len(seen)
+        if self.stopped_by in ("lookback window", "end of list"):
+            self.folder_size = len(seen)
         if not self.hands_off():
             self._js(_SCROLL_TOP_JS)
         return [m for _, records in self._threads.values() for m in records]

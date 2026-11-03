@@ -240,7 +240,7 @@ def _restore_config():
 def test_the_list_is_seeded_from_config_the_first_time():
     try:
         data = _fresh_senders()
-        assert data == {"addresses": list(sample_data.FIXTURE_SENDERS), "names": []}
+        assert data == {"addresses": list(sample_data.FIXTURE_SENDERS), "names": [], "team": []}
         assert senders.path().stat().st_mode & 0o777 == 0o600
     finally:
         _restore_config()
@@ -250,7 +250,7 @@ def test_a_fresh_install_starts_with_no_senders():
     # No config_local.py: the public example addresses are placeholders, not
     # people, and must not appear as senders the user never added.
     try:
-        assert _fresh_senders(local_config=False) == {"addresses": [], "names": []}
+        assert _fresh_senders(local_config=False) == {"addresses": [], "names": [], "team": []}
     finally:
         _restore_config()
 
@@ -542,3 +542,43 @@ def test_a_sign_in_alert_comes_once_after_two_readings():
     assert mm.sign_in_alerts(good, readings, alerted) == []
     assert mm.sign_in_alerts(out, readings, alerted) == []
     assert mm.sign_in_alerts(out, readings, alerted) == ["RiseIO"]
+
+
+def test_a_sender_can_be_marked_as_a_shared_account_and_it_is_kept():
+    import tempfile
+
+    import config
+    import senders
+
+    saved_env, saved_team = os.environ.get("MOVEIN_SENDERS_PATH"), config.TEAM_ACCOUNTS
+    saved_lists = config.TRIGGER_SENDERS, config.TRIGGER_SENDER_NAMES
+    os.environ["MOVEIN_SENDERS_PATH"] = os.path.join(tempfile.mkdtemp(prefix="movein-test-"), "senders.json")
+    try:
+        senders.save({"addresses": [], "names": ["Front Desk"]})
+        assert senders.toggle_team("nobody here")[0] is False
+        assert senders.toggle_team("front desk")[0] is True
+        assert senders.load()["team"] == ["Front Desk"] and config.TEAM_ACCOUNTS == ["Front Desk"]
+        page = board.render([], senders=senders.load())
+        assert "shared account" in page and 'data-action="toggle_team"' in page
+        senders.toggle_team("Front Desk")
+        assert senders.load()["team"] == []
+        senders.toggle_team("Front Desk")
+        senders.remove("Front Desk")          # off the list means off this list too
+        assert senders.load()["team"] == []
+    finally:
+        config.TEAM_ACCOUNTS = saved_team
+        config.TRIGGER_SENDERS, config.TRIGGER_SENDER_NAMES = saved_lists
+        if saved_env is None:
+            os.environ.pop("MOVEIN_SENDERS_PATH", None)
+        else:
+            os.environ["MOVEIN_SENDERS_PATH"] = saved_env
+
+
+def test_the_progress_bar_floats_outside_the_part_that_updates():
+    # Found live: a bar inside the page moved everything each time it moved,
+    # and redrawing for each step re-ran the board's animations.
+    page = board.render([], senders={"addresses": [], "names": []})
+    bar = page.index('id="checkbar"')
+    assert bar < page.index('<div id="live">')          # never swapped with the live part
+    assert "window.__progress = function" in page
+    assert "position: fixed" in page[page.index(".checkbar {"):page.index(".checkbar {") + 200]

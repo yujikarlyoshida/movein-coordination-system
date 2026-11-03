@@ -178,6 +178,9 @@ class TriageDelegate(NSObject):
         self._done = set()
         self._sheet_open = False
         self._running = False
+        # A check in progress, for the board's bar: {"pct", "text"}, or None.
+        self._progress = None
+        self._progress_drawn = 0.0
 
         # Sign-in state of each tab in the app's browser, for the board.
         # Empty (not None) in live mode, so the board's Open browser button
@@ -350,15 +353,47 @@ class TriageDelegate(NSObject):
             os.chmod(self.board_path, 0o600)
 
     @objc.python_method
+    def _check_progress(self, stage, done, about):
+        """From the mail reader, as a pass moves through the folder."""
+        if stage == "folder":
+            self._show_progress({"pct": 8, "text": f"Opening the {getattr(config, 'MAIL_FOLDER', 'Move ins')} folder"},
+                                force=True)
+        elif about:
+            self._show_progress({"pct": 12 + 83 * min(done / about, 1.0),
+                                 "text": f"Reading thread {done} of about {about}"})
+        else:
+            # No full read of the folder yet (just started, or the last check
+            # stopped at its limit): no total to promise, so fill gradually.
+            self._show_progress({"pct": 12 + 83 * (1 - 0.93 ** done), "text": f"Reading thread {done}"})
+
+    @objc.python_method
+    def _show_progress(self, progress, force=False):
+        """Move the board's progress bar, at most a few times a second; None
+        takes it away. Only the bar is touched: found live, redrawing the board
+        for each step moved and re-animated everything on it."""
+        import json
+        import time
+
+        self._progress = progress
+        if progress is not None and not force and time.monotonic() - self._progress_drawn < 0.5:
+            return
+        self._progress_drawn = time.monotonic()
+        AppHelper.callAfter(native_window.board_js, f"window.__progress && window.__progress({json.dumps(progress)})")
+
+    @objc.python_method
     def _with_marks(self, results):
         import history
         import rules
 
+        from datetime import date
+
         try:
-            return rules.with_marks(results, history.marked_done())
+            results = rules.with_marks(results, history.marked_done())
         except Exception:  # noqa: BLE001 -- an unreadable log never hides units
             traceback.print_exc()
-            return results
+        # Not in demo or practice mode: the sample leases' dates are fixed and
+        # would all have passed, leaving nothing to show.
+        return results if self.demo else rules.with_past_move_ins(results, date.today())
 
     @objc.python_method
     def _mark(self, unit, done):
@@ -453,6 +488,7 @@ class TriageDelegate(NSObject):
         # Hands off Outlook while you are using it, or a guided run is.
         reader = outlook_web.OutlookWebReader(
             self.webview, hands_off=lambda: browser.outlook_in_use() or self._running)
+        reader.progress = self._check_progress
         last = menu_model.Snapshot(demo=False, folder=reader.folder)
         while True:
             delay = 20
@@ -464,6 +500,7 @@ class TriageDelegate(NSObject):
             else:
                 try:
                     records = reader.read_pass()
+                    self._show_progress(None, force=True)
                 except outlook_web.SignedOut as exc:
                     native_window._trace("check", f"stopped: {exc}")
                     snap = replace(last, state="signed_out")
@@ -491,6 +528,15 @@ class TriageDelegate(NSObject):
                     self._remember(results, staging.collect(messages))
                     # Units you marked done stay done (that lease email only).
                     results = self._with_marks(results)
+                    if os.environ.get("MOVEIN_TRACE"):
+                        from models import Verdict
+
+                        try:
+                            for r in results:
+                                if r.verdict is Verdict.NEEDS_OUTREACH:
+                                    native_window._trace("open unit", f"{r.unit}: {rules.thread_summary(messages, r)}")
+                        except Exception:  # noqa: BLE001 -- a trace never stops a check
+                            traceback.print_exc()
                     unknown = outlook_web.unknown_lease_senders(messages)
                     stamp = datetime.now().strftime("%I:%M %p").lstrip("0")
                     native_window._trace("check", f"finished: {len(results)} unit(s), {reader.last_opened} thread(s) opened")
@@ -503,6 +549,9 @@ class TriageDelegate(NSObject):
                     )
                     last = snap
                     delay = 60 if snap.more_to_read else config.REFRESH_INTERVAL_SECONDS
+            if self._progress is not None:
+                # The check stopped early (signed out, in use, an error): no bar left behind.
+                self._show_progress(None, force=True)
             self._check_connections(snap.state)
             if snap.state != "watching":
                 # Keep the board's Connections panel current while not reading.
@@ -630,10 +679,12 @@ class TriageDelegate(NSObject):
         import senders
 
         if action.startswith("setup_") or action == "open_settings" or (
-                self._setup is not None and action in ("add_sender", "remove_sender", "open_site")):
+                self._setup is not None and action in ("add_sender", "remove_sender", "toggle_team", "open_site")):
             self._setup_action(action, value)
             return
         if action == "run":
+            if not self.demo:
+                self._show_progress({"pct": 3, "text": "Starting a check"}, force=True)
             self.checkNow_(None)
             return
         if action in ("guide_hide", "guide_show"):
@@ -683,6 +734,8 @@ class TriageDelegate(NSObject):
             changed, self._notice = senders.add(value)
         elif action == "remove_sender":
             changed, self._notice = senders.remove(value)
+        elif action == "toggle_team":
+            changed, self._notice = senders.toggle_team(value)
         else:
             return
         if self.demo and changed:
@@ -860,8 +913,9 @@ class TriageDelegate(NSObject):
             except (ValueError, AttributeError):
                 pass
             return
-        if action in ("add_sender", "remove_sender"):
-            changed, st["notice"] = (senders.add if action == "add_sender" else senders.remove)(value)
+        if action in ("add_sender", "remove_sender", "toggle_team"):
+            changed, st["notice"] = {"add_sender": senders.add, "remove_sender": senders.remove,
+                                     "toggle_team": senders.toggle_team}[action](value)
             if changed:
                 self._wake.set()
             self._write_setup()

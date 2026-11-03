@@ -105,6 +105,14 @@ def is_trigger_sender(address: str, name: str = "") -> bool:
     return bool(name.strip()) and _normalise_name(name) in wanted
 
 
+def is_team_account(address: str, name: str = "") -> bool:
+    """A shared account on the sender list: it sends leases and answers them."""
+    team = getattr(config, "TEAM_ACCOUNTS", [])
+    wanted = {_normalise_name(v) for v in team}
+    return address.strip().lower() in {v.lower() for v in team} or (
+        bool(name.strip()) and _normalise_name(name) in wanted)
+
+
 def mentions_trigger_event(body: str) -> bool:
     """
     True when the body describes a move-in event worth acting on.
@@ -543,7 +551,14 @@ def build_trigger(message: dict) -> Trigger | None:
     sender_name = message.get("sender_name", "")
     body = message.get("body", "")
 
-    if not qualifies(sender, body, sender_name):
+    # A shared account answers leases as well as sending them, and its reply
+    # quotes the lease below. Only what it wrote can start a new one.
+    if is_team_account(sender, sender_name):
+        import rules
+
+        if not qualifies(sender, rules.reply_text(body), sender_name):
+            return None
+    elif not qualifies(sender, body, sender_name):
         return None
 
     residents, problems = parse_residents(body)

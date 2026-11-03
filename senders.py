@@ -6,7 +6,11 @@ add a colleague. It now lives in a private file the board can change:
 
     ~/Library/Application Support/MoveInTriage/senders.json   (mode 0600)
 
-    {"addresses": ["leasing.manager@example.com"], "names": ["Leasing Lead"]}
+    {"addresses": ["leasing.manager@example.com"], "names": ["Leasing Lead"],
+     "team": ["Front Desk"]}
+
+"team" marks shared accounts: entries on the list that send leases and also
+answer them, so their replies count as a teammate's (rules.judge_thread).
 
 On first use the file is seeded from config_local.py when there is one (so an
 existing setup carries over); a fresh install starts empty. From then on the
@@ -68,12 +72,14 @@ def load() -> dict[str, list[str]]:
         # senders nobody added.
         seed = getattr(config, "HAS_LOCAL_CONFIG", True)
         data = {"addresses": _clean(config.TRIGGER_SENDERS) if seed else [],
-                "names": _clean(getattr(config, "TRIGGER_SENDER_NAMES", [])) if seed else []}
+                "names": _clean(getattr(config, "TRIGGER_SENDER_NAMES", [])) if seed else [],
+                "team": []}
         save(data)
         return data
     with open(p, encoding="utf-8") as fh:
         raw = json.load(fh)
-    return {"addresses": _clean(raw.get("addresses")), "names": _clean(raw.get("names"))}
+    return {"addresses": _clean(raw.get("addresses")), "names": _clean(raw.get("names")),
+            "team": _clean(raw.get("team"))}
 
 
 def save(data: dict[str, list[str]]) -> None:
@@ -82,8 +88,8 @@ def save(data: dict[str, list[str]]) -> None:
     # Create owner-only before writing, so the list is never readable by others.
     fd = os.open(p, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump({"addresses": _clean(data.get("addresses")),
-                   "names": _clean(data.get("names"))}, fh, indent=2)
+        json.dump({"addresses": _clean(data.get("addresses")), "names": _clean(data.get("names")),
+                   "team": _clean(data.get("team"))}, fh, indent=2)
     os.chmod(p, 0o600)
 
 
@@ -92,7 +98,24 @@ def apply(data: dict[str, list[str]] | None = None) -> dict[str, list[str]]:
     data = data if data is not None else load()
     config.TRIGGER_SENDERS = list(data["addresses"])
     config.TRIGGER_SENDER_NAMES = list(data["names"])
+    config.TEAM_ACCOUNTS = list(data.get("team", []))
     return data
+
+
+def toggle_team(entry: str) -> tuple[bool, str]:
+    """Mark an entry on the list as a shared account, or unmark it."""
+    entry = " ".join((entry or "").split())
+    data = load()
+    known = {v.lower(): v for v in data["addresses"] + data["names"]}
+    if entry.lower() not in known:
+        return False, "That sender wasn't on the list."
+    team = [v for v in data["team"] if v.lower() != entry.lower()]
+    shared = len(team) == len(data["team"])
+    data["team"] = team + [known[entry.lower()]] if shared else team
+    save(data)
+    apply(data)
+    return True, ("Its replies now count as a teammate's. Checking again now." if shared
+                  else "Its replies no longer count as a teammate's. Checking again now.")
 
 
 def add(entry: str) -> tuple[bool, str]:
@@ -127,6 +150,7 @@ def remove(entry: str) -> tuple[bool, str]:
         kept = [v for v in data[key] if v.lower() != entry]
         if len(kept) != len(data[key]):
             data[key] = kept
+            data["team"] = [v for v in data["team"] if v.lower() != entry]
             save(data)
             apply(data)
             return True, f"Removed the {kind}. Checking again now."

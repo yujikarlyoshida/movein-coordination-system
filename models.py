@@ -53,13 +53,15 @@ class Verdict(str, Enum):
 class Evidence:
     """One reason a unit was judged already handled."""
 
-    kind: str        # "thread_reply" | "announcement" | "welcome_sent" | "marked_by_you"
+    kind: str        # "thread_reply" | "announcement" | "welcome_sent" | "marked_by_you" | "move_in_passed"
     subject: str
     received: str
 
     def describe(self) -> str:
         if self.kind == "marked_by_you":
             return "you marked it done"
+        if self.kind == "move_in_passed":
+            return "move-in date passed"
         if self.kind == "welcome_sent":
             return f"welcome email already sent — {self.subject}"
         if self.kind == "thread_reply":

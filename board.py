@@ -349,6 +349,18 @@ tr:last-child td { border-bottom: 0 }
 .btn:hover { filter: brightness(.95) } .btn:active { transform: scale(.98) }
 .btn.small { font-size: 12.5px; padding: 4px 12px }
 .notice { background: var(--soft); border-radius: 14px; padding: 12px 18px; margin: 24px 0 0; font-size: 14px }
+/* The check's progress: floating, outside the page's flow and outside the part
+   that updates in place, so moving it never moves (or re-animates) the board. */
+.checkbar { position: fixed; top: 84px; left: 50%; z-index: 40; width: min(560px, calc(100% - 32px));
+  padding: 12px 18px; border-radius: 14px; box-sizing: border-box; pointer-events: none;
+  background: rgb(0 0 0 / .55); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgb(255 255 255 / .12); opacity: 0; transform: translate(-50%, -8px);
+  transition: opacity .3s ease, transform .3s ease }
+.checkbar.on { opacity: 1; transform: translate(-50%, 0) }
+.checkbar-text { font-size: 13.5px; color: rgb(255 255 255 / .85); margin-bottom: 8px }
+.checkbar-track { height: 6px; border-radius: 999px; background: rgb(255 255 255 / .12); overflow: hidden }
+.checkbar-fill { height: 100%; border-radius: 999px; background-image: linear-gradient(to right, #06b6d4, #f97316);
+  transition: width .6s ease }
 .panel { margin-top: 32px; background: var(--card); border-radius: 24px; padding: 24px 26px; box-shadow: var(--shadow) }
 .panel h2 { font: 600 22px/1.2 -apple-system, "SF Pro Display", system-ui, sans-serif; letter-spacing: -.02em; margin: 0 0 4px }
 .panel .sub { font-size: 14px; color: var(--ink-2); margin: 0 0 18px }
@@ -447,6 +459,8 @@ def _checks(result: Result) -> tuple[str, list[str]]:
         kinds = {e.kind for e in result.evidence}
         if "marked_by_you" in kinds:
             return "You marked this done", []
+        if "move_in_passed" in kinds:
+            return "Move-in date passed", []
         said = []
         if kinds & {"thread_reply", "announcement"}:
             said.append("Teammate replied")
@@ -600,8 +614,12 @@ def _connections_panel(connections: list) -> str:
 
 def _senders_panel(senders: dict, unknown: list) -> str:
     """The editable sender list, plus senders seen sending lease emails but missing."""
+    team = {t.lower() for t in senders.get("team", [])}
     chips = "".join(
-        f'<span class="chip">{_esc(v)} <span class="kind">{kind}</span>'
+        f'<span class="chip">{_esc(v)} <span class="kind">{"shared account" if v.lower() in team else kind}</span>'
+        f'<button class="app-only" data-action="toggle_team" data-value="{_esc(v)}" '
+        'title="For an account that sends leases and also answers them: its replies count as a teammate\'s">'
+        f'{"Not shared" if v.lower() in team else "Shared"}</button>'
         f'<button class="app-only" data-action="remove_sender" data-value="{_esc(v)}" '
         f'title="Remove from the list">Remove</button></span>'
         for kind, values in (("address", senders.get("addresses", [])), ("name", senders.get("names", [])))
@@ -619,7 +637,8 @@ def _senders_panel(senders: dict, unknown: list) -> str:
     return (
         '<div class="panel"><h2>Lease email senders</h2>'
         '<p class="sub">Only emails from these senders are read as new leases. '
-        "Use an email address, or a full name exactly as Outlook shows it.</p>"
+        "Use an email address, or a full name exactly as Outlook shows it. Teammates who only "
+        "reply don't belong here. Mark an account Shared if it sends leases and also answers them.</p>"
         f'<div class="chips">{chips}</div>'
         '<form class="addrow app-only" id="add">'
         '<input id="sender" autocomplete="off" placeholder="leasing.manager@company.com or Jordan Lee">'
@@ -627,6 +646,25 @@ def _senders_panel(senders: dict, unknown: list) -> str:
         f"{seen}</div>"
     )
 
+
+# The progress bar and the one function that moves it. The app calls
+# window.__progress({pct, text}) as a check reads the folder, and
+# window.__progress(null) when it ends; nothing else on the page is touched.
+_CHECKBAR = """<div class="checkbar" id="checkbar" role="progressbar" aria-label="Checking the mailbox"
+ aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+<div class="checkbar-text"></div><div class="checkbar-track"><div class="checkbar-fill" style="width:0%"></div></div>
+</div>
+<script>
+window.__progress = function (p) {
+  var bar = document.getElementById('checkbar'); if (!bar) return;
+  if (!p) { bar.classList.remove('on'); return; }
+  var pct = Math.max(2, Math.min(100, Math.round(p.pct || 0)));
+  bar.querySelector('.checkbar-text').textContent = p.text || 'Checking';
+  bar.querySelector('.checkbar-fill').style.width = pct + '%';
+  bar.setAttribute('aria-valuenow', String(pct));
+  bar.classList.add('on');
+};
+</script>"""
 
 _SCRIPT = """
 <script>
@@ -790,6 +828,7 @@ def render(results: list[Result], operator: str = "", status: str = "",
     header_html = hero.header(nav, head_button, interactive)
     guide_html = _guide() if interactive and guide else ""
     notice_html = f'<div class="notice">{_esc(notice)}</div>' if notice else ""
+
     # Ignored senders sit at the top (ignored_html), not in the sender panel.
     panel = _senders_panel(senders, []) if interactive else ""
     ignored_html = _ignored_panel(unknown or []) if interactive else ""
@@ -824,6 +863,7 @@ def render(results: list[Result], operator: str = "", status: str = "",
 </head>
 <body>
 {hero.backdrop(logo)}
+{_CHECKBAR if interactive else ""}
 <div id="live">
 {header_html}
 <div class="wrap">
