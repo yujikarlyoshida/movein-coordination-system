@@ -447,6 +447,17 @@ def test_only_use_inside_the_outlook_page_counts():
     assert not browser.counts_as_outlook_use(False, "outlook", True)   # another window
 
 
+def test_a_thread_can_be_opened_for_you_by_its_conversation():
+    if _skip_without_webkit():
+        return
+    import outlook_web
+
+    view = _load_page(FOLDER_PAGE)
+    assert outlook_web.show_thread(view, outlook_web.FOLDER, "C-0612")
+    assert outlook_web.run_js(view, outlook_web._PANE_JS)["selected"] == "C-0612"
+    assert not outlook_web.show_thread(view, outlook_web.FOLDER, "C-NOT-THERE")
+
+
 def test_unchanged_threads_are_not_reopened():
     # Opening is the one interaction with the page; a pass with nothing new
     # should not touch anything, yet still report the whole folder.

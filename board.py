@@ -377,6 +377,8 @@ tr:last-child td { border-bottom: 0 }
 .seen .item > span:last-child { display: flex; align-items: center; gap: 8px }
 .seen .hl { background: var(--hi); padding: 1px 6px; border-radius: 6px }
 .no-app .app-only { display: none }
+.web-only { display: none }
+.no-app .web-only { display: inline-block }
 .sites { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px }
 .sites-label { font-size: 12px; color: var(--ink-2) }
 .p-missing { background: transparent; color: var(--ink); border: 1px dashed rgba(0, 0, 0, .3); cursor: pointer }
@@ -396,6 +398,8 @@ tr:last-child td { border-bottom: 0 }
 .p-prepare { background: var(--accent); color: #fff; cursor: pointer }
 .p-done { background: var(--soft); color: #0058b0 }
 .p-mark { cursor: pointer; color: var(--ink-2); border: 1px solid var(--line) }
+.p-link { cursor: pointer }
+.p-link:hover { filter: brightness(1.25) }
 .guide { margin: 0 0 32px }
 .g-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 4px }
 .g-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 6px }
@@ -535,12 +539,21 @@ def _row(result: Result, interactive: bool = False, done: bool = False) -> str:
     elif interactive and any(e.kind == "marked_by_you" for e in result.evidence):
         mark = (f'<span class="pill p-mark app-only" data-action="unmark_done" data-value="{_esc(result.unit)}" '
                 'title="Put it back on the list">Undo</span>')
+    # The status opens this lease email in the app's Outlook tab, by its id,
+    # never by anything a person wrote. Found live: it looked like a button
+    # and did nothing.
+    if interactive and result.trigger_id:
+        status = (f'<span class="pill {cls} p-link app-only" role="button" tabindex="0" data-action="open_lease" '
+                  f'data-value="{_esc(result.trigger_id)}" title="Open this lease email in Outlook">{_esc(label)}</span>'
+                  f'<span class="pill {cls} web-only">{_esc(label)}</span>')
+    else:
+        status = f'<span class="pill {cls}">{_esc(label)}</span>'
     return (
         f'<tr data-verdict="{_esc(result.verdict.value)}">'
         f'<td class="unit">{link}</td>'
         f"<td>{_esc(_move_in(result.move_in))}</td>"
         f'<td><div class="check">{_esc(check)}</div>{note_html}</td>'
-        f'<td><div class="stack"><span class="pill {cls}">{_esc(label)}</span>{prepare}{missing_pill}{mark}</div></td>'
+        f'<td><div class="stack">{status}{prepare}{missing_pill}{mark}</div></td>'
         "</tr>"
     )
 

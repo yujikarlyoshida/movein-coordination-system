@@ -55,6 +55,9 @@ _timer = None
 _outlook_touched_at = 0.0
 # The event monitor that sees those keystrokes and clicks. Kept, or it is freed.
 _monitor = None
+# When the Outlook tab was last the window you are on (time.monotonic()), checked
+# every second: an email opened for you stays yours while you read it.
+_outlook_focused_at = 0.0
 
 # During a guided run's "your turn": the instruction and Done / Skip, in this
 # window's toolbar, where the person is working (the run's sheet is in the
@@ -90,6 +93,7 @@ def _controller_class():
 
         def tick_(self, _timer):
             _update_status()
+            _note_outlook_focus()
 
         def turnDone_(self, _sender):
             fn = _turn.get("on_done")
@@ -105,6 +109,25 @@ def _controller_class():
 
     _controller = BrowserToolbar.alloc().init()
     return _controller
+
+
+def _note_outlook_focus() -> None:
+    """Main thread, every second: is the Outlook tab the window you are on?"""
+    global _outlook_focused_at
+    import time
+
+    from AppKit import NSApp
+
+    if (_window is not None and _current_name() == "outlook" and _window.isVisible()
+            and not _window.isMiniaturized() and _window.isKeyWindow() and NSApp.isActive()):
+        _outlook_focused_at = time.monotonic()
+
+
+def outlook_focused(within: float = 10.0) -> bool:
+    """Safe from any thread: the Outlook tab was the window you were on, just now."""
+    import time
+
+    return _outlook_focused_at > 0 and time.monotonic() - _outlook_focused_at < within
 
 
 def counts_as_outlook_use(in_this_window: bool, tab: str, inside_outlook: bool) -> bool:

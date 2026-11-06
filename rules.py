@@ -522,6 +522,26 @@ def with_past_move_ins(results: list[Result], today) -> list[Result]:
     return out
 
 
+def unreadable_summary(messages: list[dict], result: Result) -> str:
+    """For the trace: why a lease with no readable details was taken for a
+    lease, in structure only (which trigger word, which field labels, reply or
+    not, how much text), never its words or names."""
+    m = next((x for x in messages if x.get("id") == result.trigger_id), None)
+    if m is None:
+        return "message not found"
+    body = (m.get("body") or "").lower()
+    own = reply_text(m.get("body") or "").lower()
+    words = [w for w in config.TRIGGER_PHRASES if w in body]
+    words_own = [w for w in config.TRIGGER_PHRASES if w in own]
+    labels = [lab for lab in ("name", "email", "phone", "apartment number", "lease start date", "unit")
+              if re.search(rf"\b{re.escape(lab)}\s*:", body)]
+    subject = (m.get("subject") or "").strip().lower()
+    return (f"words {words} (in its own text {words_own}), labels {labels}, "
+            f"field block {'yes' if all(x in body for x in config.TRIGGER_FIELD_MARKERS) else 'no'}, "
+            f"{'reply' if subject.startswith('re') else 'forward' if subject.startswith('fw') else 'new'}, "
+            f"{len(body)} chars, quoted part {'yes' if len(own) < len(body) else 'no'}")
+
+
 def with_marks(results: list[Result], marked: set[str]) -> list[Result]:
     """
     Units you marked done yourself, shown as Handled ("You marked this done").

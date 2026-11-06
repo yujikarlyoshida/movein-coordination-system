@@ -42,6 +42,7 @@ import argparse
 import os
 import subprocess
 import threading
+import time
 import traceback
 from dataclasses import replace
 from datetime import datetime
@@ -81,6 +82,9 @@ BOARD_FILENAME = config.OUTPUT_HTML
 _STATUS_ITEM = None
 _MENU = None
 
+
+# The longest the mail reader waits while you read an email it opened for you.
+VIEWING_LIMIT_SECONDS = 15 * 60
 
 # How often the Connections panel looks at each tab, and proves a session by reloading it.
 CONNECTION_CHECK_SECONDS = 20
@@ -178,6 +182,10 @@ class TriageDelegate(NSObject):
         self._done = set()
         self._sheet_open = False
         self._running = False
+        # Opening a lease email for you: the reader keeps its hands off while
+        # you read it (see _outlook_hands_off).
+        self._conv_of = {}
+        self._viewing_since = None
         # A check in progress, for the board's bar: {"pct", "text"}, or None.
         self._progress = None
         self._progress_drawn = 0.0
@@ -353,6 +361,57 @@ class TriageDelegate(NSObject):
             os.chmod(self.board_path, 0o600)
 
     @objc.python_method
+    def _outlook_hands_off(self):
+        """Should the mail reader leave the Outlook tab alone right now? While
+        you type, click or scroll there, during a guided run, and after it
+        opened an email for you, for as long as that tab is the window you are
+        on (up to VIEWING_LIMIT_SECONDS). Found live: a two-minute hold ran out
+        and the reader stepped through other emails in the tab you were reading."""
+        import browser
+
+        if browser.outlook_in_use() or self._running:
+            return True
+        if self._viewing_since is not None:
+            if (time.monotonic() - self._viewing_since < VIEWING_LIMIT_SECONDS
+                    and (time.monotonic() - self._viewing_since < 10 or browser.outlook_focused())):
+                return True
+            self._viewing_since = None
+        return False
+
+    @objc.python_method
+    def _open_lease(self, message_id):
+        """A unit's status, clicked: show its lease email in the app's Outlook tab."""
+        import time
+
+        import browser
+        import outlook_web
+
+        conv = self._conv_of.get(message_id)
+        if self.demo or not conv:
+            self._notice = ("That email isn't in the latest check. Search Outlook for the unit instead."
+                            if not self.demo else "Demo mode: there is no Outlook to open.")
+            self._write_board(*self._board_args)
+            native_window.refresh_if_open(self.board_path)
+            return
+        self._viewing_since = time.monotonic()
+        browser.open_tab("outlook")
+        folder = getattr(config, "MAIL_FOLDER", "Move ins")
+
+        def look():
+            try:
+                found = outlook_web.show_thread(self.webview, folder, conv)
+            except Exception:  # noqa: BLE001 -- say so rather than nothing
+                traceback.print_exc()
+                found = False
+            native_window._trace("open_lease", "opened" if found else "not found in the folder")
+            if not found:
+                self._notice = f"Couldn't find that email in the {folder} folder; it may have moved."
+                self._write_board(*self._board_args)
+                AppHelper.callAfter(native_window.refresh_if_open, self.board_path)
+
+        threading.Thread(target=look, daemon=True).start()
+
+    @objc.python_method
     def _check_progress(self, stage, done, about):
         """From the mail reader, as a pass moves through the folder."""
         if stage == "folder":
@@ -487,7 +546,7 @@ class TriageDelegate(NSObject):
 
         # Hands off Outlook while you are using it, or a guided run is.
         reader = outlook_web.OutlookWebReader(
-            self.webview, hands_off=lambda: browser.outlook_in_use() or self._running)
+            self.webview, hands_off=self._outlook_hands_off)
         reader.progress = self._check_progress
         last = menu_model.Snapshot(demo=False, folder=reader.folder)
         while True:
@@ -506,6 +565,8 @@ class TriageDelegate(NSObject):
                     snap = replace(last, state="signed_out")
                 except outlook_web.InUse:
                     native_window._trace("check", "paused: a guided run is using Outlook" if self._running
+                                         else "paused: you are reading an email it opened for you"
+                                         if self._viewing_since is not None
                                          else "paused: you typed, clicked or scrolled in the Outlook tab in the last few seconds")
                     # Stopped before touching anything; the last results stay
                     # on the board. Look again shortly.
@@ -526,6 +587,8 @@ class TriageDelegate(NSObject):
                     # Records the history log and prepares plans for the
                     # confirmation sheet. Prepares, never sends.
                     self._remember(results, staging.collect(messages))
+                    # Each lease email's conversation, for opening it from the board.
+                    self._conv_of = {m.get("id"): rules.thread_id(m) for m in messages if m.get("id")}
                     # Units you marked done stay done (that lease email only).
                     results = self._with_marks(results)
                     if os.environ.get("MOVEIN_TRACE"):
@@ -535,6 +598,8 @@ class TriageDelegate(NSObject):
                             for r in results:
                                 if r.verdict is Verdict.NEEDS_OUTREACH:
                                     native_window._trace("open unit", f"{r.unit}: {rules.thread_summary(messages, r)}")
+                                elif r.verdict is Verdict.UNCLEAR and not r.unit.strip("?"):
+                                    native_window._trace("no details", rules.unreadable_summary(messages, r))
                         except Exception:  # noqa: BLE001 -- a trace never stops a check
                             traceback.print_exc()
                     unknown = outlook_web.unknown_lease_senders(messages)
@@ -696,6 +761,9 @@ class TriageDelegate(NSObject):
                 self._demo_guide_hidden = action == "guide_hide"
             self._write_board(*self._board_args)
             native_window.refresh_if_open(self.board_path)
+            return
+        if action == "open_lease":
+            self._open_lease(value)
             return
         if action in ("mark_done", "unmark_done"):
             self._mark(value, action == "mark_done")

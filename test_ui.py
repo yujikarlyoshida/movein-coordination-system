@@ -582,3 +582,59 @@ def test_the_progress_bar_floats_outside_the_part_that_updates():
     assert bar < page.index('<div id="live">')          # never swapped with the live part
     assert "window.__progress = function" in page
     assert "position: fixed" in page[page.index(".checkbar {"):page.index(".checkbar {") + 200]
+
+
+def test_a_units_status_opens_its_lease_email():
+    # Found live: the status looked like a button and did nothing.
+    from models import Result, Verdict
+
+    r = Result(unit="0317", verdict=Verdict.UNCLEAR, trigger_id="CONV-1:abc")
+    page = board.render([r], senders={"addresses": [], "names": []})
+    assert 'data-action="open_lease" data-value="CONV-1:abc"' in page
+    import window
+    assert "open_lease" in window.BOARD_ACTIONS
+    # The plain exported board shows a label only.
+    assert 'data-action="open_lease"' not in board.render([r])
+
+
+def test_outlook_counts_as_focused_only_just_now():
+    import time
+
+    saved = browser._outlook_focused_at
+    try:
+        browser._outlook_focused_at = 0.0
+        assert not browser.outlook_focused()
+        browser._outlook_focused_at = time.monotonic()
+        assert browser.outlook_focused()
+        browser._outlook_focused_at = time.monotonic() - 11
+        assert not browser.outlook_focused()
+    finally:
+        browser._outlook_focused_at = saved
+
+
+def test_the_reader_waits_while_you_read_an_email_it_opened():
+    # Found live: a two-minute hold ran out and the reader stepped through
+    # other emails in the tab you were reading.
+    import time
+    import types
+
+    try:
+        import menubar
+    except ImportError:
+        return
+    fake = types.SimpleNamespace(_running=False, _viewing_since=None)
+    hands = lambda: menubar.TriageDelegate._outlook_hands_off(fake)  # noqa: E731
+    saved = browser.outlook_in_use, browser.outlook_focused
+    browser.outlook_in_use = lambda: False
+    try:
+        browser.outlook_focused = lambda within=10.0: True
+        assert not hands()                                   # nothing opened
+        fake._viewing_since = time.monotonic() - 60
+        assert hands()                                       # reading, tab in front
+        browser.outlook_focused = lambda within=10.0: False
+        assert not hands() and fake._viewing_since is None   # left the tab
+        fake._viewing_since = time.monotonic() - 16 * 60
+        browser.outlook_focused = lambda within=10.0: True
+        assert not hands()                                   # never for good
+    finally:
+        browser.outlook_in_use, browser.outlook_focused = saved

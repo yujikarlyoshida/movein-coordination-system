@@ -32,7 +32,7 @@ _on_action = None
 _handler = None
 
 # The only things a board page may ask for.
-BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing", "mark_done", "unmark_done", "toggle_team",
+BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing", "mark_done", "unmark_done", "toggle_team", "open_lease",
                  "prepare", "confirm", "sheet_closed", "open_site", "guided_done", "guided_skip",
                  # The welcome page and Settings (welcome.py).
                  "open_settings", "setup_go", "setup_save_you", "setup_save_property", "setup_keep",
@@ -42,7 +42,7 @@ BOARD_ACTIONS = {"run", "add_sender", "remove_sender", "ack_missing", "mark_done
 # Longest value each action may carry; anything longer is dropped, not cut.
 # A sender or unit is short; a settings form is a few fields; a confirmed sheet
 # (several residents' details as JSON) is longer, but never this long.
-_VALUE_LIMITS = {"confirm": 20000, "setup_save_you": 2000, "setup_save_property": 2000,
+_VALUE_LIMITS = {"open_lease": 1000, "confirm": 20000, "setup_save_you": 2000, "setup_save_property": 2000,
                  "setup_keep": 2000, "setup_export": 200}
 
 def _trace(action: str, outcome: str) -> None:

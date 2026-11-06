@@ -271,6 +271,34 @@ _SCROLL_DOWN_JS = """(() => {%s
 })()""" % _SCROLLER
 
 
+def show_thread(webview, folder: str, conv_id: str, max_scrolls: int = 60) -> bool:
+    """
+    From a worker thread: open one conversation in the folder, for you to read
+    (a unit's status on the board, clicked). Selects the folder, scrolls the
+    list until the conversation's row shows, and clicks it. False if it is
+    not in the folder.
+    """
+    reader = OutlookWebReader(webview, folder=folder)
+    if reader.state() != "ready":
+        return False
+    match = _FOLDER_MATCH % json.dumps(folder)
+    picked = reader._js(_SELECT_FOLDER_JS % match)
+    if not picked.get("found"):
+        return False
+    if not picked.get("already"):
+        reader._until(lambda: reader._js(_FOLDER_SELECTED_JS % match)["selected"], "the folder to open")
+        reader._until(lambda: bool(reader._js(_ROWS_JS)), "the thread list")
+    reader._js(_SCROLL_TOP_JS)
+    pause(0.5)
+    for _ in range(max_scrolls):
+        if any(row.get("convId") == conv_id for row in reader._js(_ROWS_JS)):
+            return bool(reader._js(_OPEN_ROW_JS % json.dumps(conv_id)).get("found"))
+        if not reader._js(_SCROLL_DOWN_JS).get("moved"):
+            return False
+        pause(0.5)
+    return False
+
+
 class SignedOut(Exception):
     """The window is on Microsoft's sign-in page: the session has ended."""
 
