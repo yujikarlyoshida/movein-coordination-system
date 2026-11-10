@@ -2,63 +2,64 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Housewarm: move-in coordination. It watches a shared Outlook mailbox and reports which units still need outreach, because an audit found most move-ins were already handled by a colleague. Verification comes first. For a unit that needs outreach, a guided run (`guided.py`) fills Outlook, Xfinity Communities and RiseIO in the app's own browser (`browser.py`), stopping at each final button; pressing Send / Save resident / Create New Resident itself is opt-in per unit, after an exact read-back (repeated after a countdown). The mail reader never sends; never Confirm Move-In; never press by coordinates; never log a press as done without the system confirming it. See README.md for the full safety model.
+Housewarm: move-in coordination for a multifamily property. It reads the shared "Move ins" mail folder, decides which units still need outreach (an audit found most were already handled by a teammate, so verification comes first), and for those it runs a guided run that fills Outlook, Xfinity Communities and RiseIO in the app's own browser, stopping at each final button. README.md has the full safety model and the reasoning behind it.
 
 ## Commands
 
 ```
-pip install -r requirements.txt                    # add -r requirements-mac.txt for the menu bar app
+.venv/bin/python menubar.py --board              # the app: menu bar, board window, in-app browser
+.venv/bin/python menubar.py --practice           # sample mailbox + practice/ systems, fictional data (demos)
+open "Housewarm Demo.command"                    # practice mode; restores the live app when practice quits
+MOVEIN_TRACE=1 .venv/bin/python menubar.py --board   # log every board action and check outcome, no values
+.venv/bin/python menubar.py --board --probe DIR  # dev: DIR/<site>/cmd.js is evaluated in that tab, result in out.json
+                                                 #   sites: outlook, riseio, xfinity, reader, board, practice
+.venv/bin/python menubar.py --welcome            # walk the first-run setup again
 
-python app.py --demo --console                     # whole pipeline on the synthetic mailbox, no credentials
-python app.py --stage --demo                       # prepare actions, stop at the confirmation screen
-python app.py --watch                              # poll continuously (LaunchAgent does this in production)
-python app.py --history | --db | --pause | --resume
+.venv/bin/python app.py --demo --console         # verdicts only, in the terminal (older CLI pipeline)
+.venv/bin/python app.py --history | --db | --pause | --resume
 
-python -m pytest test_rules.py test_history.py test_outlook_web.py -v   # preferred runner
-python -m pytest test_rules.py -k unit_padding     # single test (substring match on name)
-python test_rules.py                               # also runs standalone, no pytest needed (same for the other two)
-python outlook_web.py                              # open the in-app Outlook sign-in window
+.venv/bin/python -m pytest                       # ~300 tests, ~4 min (WebKit mock pages are the slow part)
+.venv/bin/python -m pytest test_rules.py -q      # decision logic only, under a second
+.venv/bin/python -m pytest test_guided.py -k welcome   # one area, by substring of test name
 ```
 
-There is no linter or build step. `Install Move-In Triage.command` and `build_dmg.sh` package the macOS app.
+No linter or build step. Logs from a detached run go to `~/Library/Application Support/MoveInTriage/run.log`.
 
 ## Architecture
 
-Data flows one way: `mailsource` → `triggers` → `rules` → `staging` → single confirmation. `history` logs unit and status.
+**Decision pipeline (pure).** `mailsource.owa_messages` turns reader records into message dicts (`id`, `conv_id`, `subject`, `body`, `sender`, `sender_name`, `received`) → `triggers.find_triggers` → `rules.evaluate` → `Result` per unit with a `Verdict` (NEEDS_OUTREACH, UNCLEAR "Check", SKIPPED_CORPORATE, HANDLED). `triggers.py` and `rules.py` do no I/O; keep it that way. After evaluation, `menubar._with_marks` applies two overlays: units the user marked done (`history.marked_done`, keyed by the lease email's id, not the unit) and leases whose move-in date has passed (`rules.with_past_move_ins`, skipped in demo/practice). Both become HANDLED with their own `Evidence` kind so the board says why.
 
-- **`triggers.py` and `rules.py` are pure**: functions over already-fetched message dicts (`id, subject, body, sender, received`). No network, I/O or credentials. Keep them that way, since that is what makes the decision logic testable offline.
-- **`mailsource.py`** is the only place mail enters. Backends: `graph` (target), `connector` (works only while an assistant session is open), `demo`, and Outlook on the web (in progress). `get_source()` falls back to demo when Graph credentials are missing. A new data source goes here. `owa_messages()` converts Outlook-web extractions into message dicts: dates read as local time, ids from conversation id plus a hash of sender, time and body start, never pane position.
-- **`outlook_web.py` + `owa_extract.js`**: the app's own WKWebView window; the user signs in themselves (MFA included). It identifies itself honestly (WebKit's user agent plus `MoveInTriage/1.0`); never disguise it to get past an access rule. `owa_extract.js` reads the open thread from the rendered page only. Never read Outlook's tokens from the page or call Microsoft APIs with them. Click by element, never by coordinates; the only interactions are selecting the folder and opening threads. The reading pane shows sender display names for directory users, so `TRIGGER_SENDER_NAMES` (real values only in `config_local.py`) backs up `TRIGGER_SENDERS`; an address, when present, always decides.
-- **`graph_client.py`** exposes `GET` only, on purpose. Do not add `_post`/`_patch`/`_delete`; scopes are `Mail.Read` + `User.Read`.
-- **`history.py`**: standard-library `sqlite3` log of trigger message id, unit, status and timestamps. **No resident data, subjects or senders**, which is why it needs no encryption or key. `record` is idempotent on message id; `status_changed_at` moves only on a real status change. `MOVEIN_HISTORY_PATH` overrides the path (tests); `use_throwaway_log()` puts demo runs in memory. Residents go from `triggers` straight into the staged draft and are never stored. Do not add a column that can hold PII; `test_no_resident_data_reaches_the_log_file` greps the raw file.
-- **`staging.py`** composes the welcome draft and the portal and resident-app payloads and renders one confirmation. There is deliberately no `--yes` flag, and drafts are never sent.
-- **`watcher.py`** polls; pause is a persisted file, not an in-memory flag, so it survives restarts.
+**The app (`menubar.py`, PyObjC).** `TriageDelegate` owns three background threads: the live loop (reads mail every 15 min, every 60 s while there is a backlog), `_watch_connections` (sign-in state every 20 s, reload-proves RiseIO/Xfinity sessions every 5 min, notifies on sign-out), and per-action workers (guided runs, opening a lease email). Anything that runs page scripts must be on a worker thread: `outlook_web.run_js` hands the call to the main thread and waits, and doing that from the main thread inside a WebKit message handler freezes the window.
 
-### Decision rules that are easy to break
+- **`browser.py`**: one window, three tabs (Outlook, RiseIO, Xfinity) sharing the default WebKit data store; the user signs in there (MFA, SSO). The mail reader (`outlook_web.OutlookWebReader`) uses the same Outlook tab, so it must stay hands-off: `menubar._outlook_hands_off` covers user input in that tab (15 s), guided runs, and an email the app opened for the user while that tab stays focused. Sign-in state comes from the address plus a visible password box (`browser.classify`).
+- **`board.py` + `window.py`**: the board is an HTML file in App Support loaded in a WKWebView. Pages mark a live part (`<div id="live">…<!--/live-->`); `window.refresh_if_open` swaps only that part, keeping scroll, focus and typed values, and fully reloads only when the shell changes. Things that update often (the check progress bar) live outside the live part and are moved with `window.board_js`, because a swap re-runs the board's entrance animations. Page → app messages go through `window.webkit.messageHandlers.triage`; an action must be in `window.BOARD_ACTIONS` (and `_VALUE_LIMITS` if its value is long) or it is refused. Buttons use document-level delegated listeners so they survive swaps.
+- **`confirm_sheet.py`**: the per-unit sheet (resident details are injected from memory, never written to disk). `validate` re-checks everything in Python. It also carries `auto_final`, the systems whose final button the app may press for this unit.
+- **`guided.py`**: guided runs on the live systems. Each step fills what it can verify and calls `_your_turn` for the rest. Opt-in auto press (Send, Save resident, Create New Resident; never Confirm Move-In) requires an exact read-back, one button found by name, a cancellable countdown (`_go_ahead`), a single press, and the system's own confirmation; outcomes go to `actions.log` (units only). Xfinity is Prism web components (shadow DOM, buttons drawn late, screens drawn in stages); helpers in the `_DEEP` script (`G.all`, `G.native`, `G.press`) pierce shadow roots.
+- **`autofill.py` + `practice/`**: the same flow against practice pages, used by practice mode, at a watchable pace (`DEMO_PACE`); tests run at full speed.
+- **`settings.py`, `senders.py`, `welcome.py`, `welcome_template.py`**: per-user setup in App Support (0600): settings, the lease sender list (with "shared account" entries), the captured welcome template. `apply()` functions push them into `config` attributes, which is all the rest of the app reads.
 
-- A trigger needs **both** a sender on `TRIGGER_SENDERS` **and** a move-in event phrase (or the field-block fallback). Either alone gives false positives or re-fires on quoted replies.
-- "Already handled" evidence matches **body text, not thread position**, and the trigger is excluded from its own evidence by id.
-- Evidence must be **received at or after the trigger it clears**, less `EVIDENCE_CLOCK_SKEW_MINUTES` (5) for clock disagreement between mailboxes. Unit numbers are reused, so an older announcement must never clear a newer lease. Evidence with an unreadable date never counts; a trigger with an unreadable date is `UNCLEAR`. The newest trigger per unit wins, so an updated or corrected resend is judged only on mail after the resend; older matching mail adds a note but does not count. Do not widen the skew past a few minutes: the fastest real hand-off was 3 minutes.
-- `rules.is_announcement` has three layers: substring `HANDLED_PHRASES`, regex `ANNOUNCEMENT_PATTERNS` (anchored on past-tense "added", so "please add…" does not count), and `is_terse_completion` (first non-empty line must be exactly a `TERSE_COMPLETIONS` word). Never add "complete" to the phrase list.
-- Units are normalised to four digits (`#735` → `0735`) before any comparison.
-- A false `HANDLED` is the dangerous direction; when unsure, prefer `UNCLEAR`.
-- **Corporate leases are out of scope**: `triggers.corporate_signals` reads strong signals (a `POC:`/`POC-` label, a company word in `Name:` or the subject, from `CORPORATE_NAME_WORDS`) and weak ones (`Phone: N/A`, a shared mailbox address from `CORPORATE_SHARED_MAILBOXES`). Any signal gives `SKIPPED_CORPORATE`, checked before every other verdict; weak-only signals say "possibly corporate, check by hand". Skipped units are shown, never staged, never counted as needing outreach. Notes name signals, never the company or contact. The property's own name is stripped from subjects first. Test with synthetic fixtures only.
-- Read status is never evidence. Handled means a reply in the thread (team SOP: reply-all when done), not whether a message was opened.
+## Decision rules that are easy to break
+
+- A trigger needs **both** a sender on the lease sender list **and** a move-in phrase or the field block (`config.TRIGGER_PHRASES` / `TRIGGER_FIELD_MARKERS`). For a shared account (`config.TEAM_ACCOUNTS`) only its own text, not the quoted lease, can start a trigger.
+- Handled evidence: a reply in the lease's thread (same `conv_id`) from anyone not a lease sender, or from a shared account; the newest such reply decides, and one that asks a question or says not done (`NOT_DONE_PHRASES`) gives UNCLEAR. Also completion notes that mention the unit, and an already-sent welcome. Read status is never evidence.
+- Evidence must be dated at or after the trigger it clears, less `EVIDENCE_CLOCK_SKEW_MINUTES` (5); unit numbers are reused. Unreadable dates never count as evidence; a trigger with an unreadable date is UNCLEAR. The newest trigger per unit wins.
+- `rules.is_announcement` layers: substring `HANDLED_PHRASES`, regex `ANNOUNCEMENT_PATTERNS` (past-tense "added", so "please add" does not count), `is_terse_completion`. Never add "complete" to the phrase list.
+- Units are normalised to four digits (`#735` → `0735`) before comparing.
+- Corporate leases (`triggers.corporate_signals`) are checked first and never staged; weak signals still skip but ask for a check.
+- A false HANDLED is the dangerous direction: when unsure, UNCLEAR.
 
 ## Constraints
 
-- **Public repo, synthetic data only.** Real senders and the property name live in the gitignored `config_local.py`, which `config.py` imports last so it overrides the example.com values. Do not put real names, units, phone numbers or addresses in code, tests, comments or commits.
-- **Opening a thread in Outlook on the web marks it read.** The owner accepted this for the Move ins folder (decision 2026-10-16): read status may change there, nothing else may. No sending, replying, moving, flagging or deleting.
-- **No resident names in any display surface** (board, menu bar, notifications, logs, problem strings). Problems refer to residents by position ("the 2nd resident listed"). A test enforces this.
-- The history log lives at `~/Library/Application Support/MoveInTriage/history.sqlite3` (0600), outside the repo. Tests and demo runs must never touch it or the real pause file. A `residents.sqlite3` and `db.key` there are leftovers from the removed encrypted store; nothing reads them.
-- Both test files pin `config.TRIGGER_SENDERS` and `PROPERTY_NAME` and a scratch `MOVEIN_HISTORY_PATH` before importing modules, so `config_local.py` cannot change results and no test writes real state. Keep that pattern in new tests. Demo runs pin the fixture roster only for the run (`sample_data.fixture_config()`).
-- The resident app's add form has no unit field and a birthday range of 1923–2023, so `PLACEHOLDER_BIRTHDAY` is 1 Jan 1923.
-- RiseIO and Xfinity have no documented APIs. Do not build write paths into them. Their verification scripts are deliberately kept out of the repo.
+- **Public repo, synthetic data only.** Real senders and the property name live in gitignored `config_local.py` and in App Support files, never in code, tests, comments or commits. Fixtures use `.invalid` addresses and 555-01xx phones.
+- **No resident data at rest or on display.** Board, menu bar, notifications, traces and logs carry unit numbers and statuses only; problems name residents by position. `test_no_resident_data_reaches_the_results` and `test_no_resident_data_reaches_the_log_file` enforce it. Probes of live pages return structure only (labels, counts, flags), never values.
+- **Writes only by explicit per-unit instruction.** The mail reader only selects the folder and opens threads (opening marks read; accepted for this folder). No `--yes` flag anywhere. Click by element or name, never coordinates. Never store credentials or tokens, and never read them from a page.
+- **Testing against live sites:** probe the live page read-only (`--probe`), reproduce the finding as behaviour in a mock under `testpages/`, write a test that fails without the fix. Tests pin config and use scratch paths (`MOVEIN_HISTORY_PATH`, `MOVEIN_SENDERS_PATH`, `settings.use_throwaway()`, `guided.ACTION_LOG`) before importing app modules; keep that pattern so no test touches real state.
+- `graph_client.py` exposes GET only (`Mail.Read`, `User.Read`).
 
-## macOS menu bar gotchas
+## macOS / PyObjC gotchas
 
-`rumps` silently fails on Python 3.14, so `menubar.py` calls `NSStatusBar` directly. Use an explicit numeric status item length (variable length is zero-width on macOS 26), give the item an image, and mark argument-taking helpers on `NSObject` subclasses `@objc.python_method`. The installer copies `*.py` only; there are no packages to copy. It import-checks the pipeline at install time.
+`rumps` silently fails on Python 3.14, so `menubar.py` uses `NSStatusBar` directly with an explicit numeric length and an image. Argument-taking helpers on `NSObject` subclasses need `@objc.python_method`. An Objective-C class can only be registered once per process: define delegate/handler classes once and reuse them (`window._make_delegate`, `_message_handler`). WebKit throttles hidden tabs, so Xfinity's components may not draw until its tab is on screen.
 
 ## Untracked clutter
 
-`*.log`, `board.html` and the `Diagnose*.command` / `Check.command` scripts are local debugging leftovers, not part of the product.
+`*.log`, `board.html`, `index.html`, `Publish Site.command` and the `Diagnose*.command` / `Check.command` scripts are local leftovers, not part of the product. The user's `.gitignore` edits are uncommitted on purpose.
